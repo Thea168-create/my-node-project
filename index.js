@@ -5,8 +5,8 @@ const app = express();
 
 // Environment Variables and Defaults
 const PORT = process.env.PORT || 3000;
-const RTU_IP = process.env.RTU_IP || '192.168.1.100';
-const RTU_PORT = process.env.RTU_PORT || 502;
+const RTU_IP = process.env.RTU_IP || '54.218.151.192';
+const RTU_PORT = process.env.RTU_PORT || 1234;
 
 // Setup Express Server
 app.get('/', (req, res) => {
