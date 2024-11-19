@@ -1,41 +1,41 @@
-// Required Modules
-const express = require('express');
-const ModbusRTU = require('modbus-serial');
+const express = require("express");
+const net = require("net");
+
 const app = express();
+const HTTP_PORT = process.env.PORT || 10000; // For Render health check
+const MODBUS_PORT = 1234; // Port where RTU will send data
 
-// Environment Variables and Defaults
-const PORT = process.env.PORT || 3000;
-const RTU_IP = process.env.RTU_IP || '54.218.151.192';
-const RTU_PORT = process.env.RTU_PORT || 1234;
-
-// Setup Express Server
-app.get('/', (req, res) => {
-    res.send('Hello, Node.js is working! RTU polling service is also running.');
+// Start Express server (for health checks or status monitoring)
+app.get("/", (req, res) => {
+    res.send("Modbus TCP server is running and waiting for RTU data!");
 });
 
-// Start Web Server
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+app.listen(HTTP_PORT, () => {
+    console.log(`HTTP server running on port ${HTTP_PORT}`);
 });
 
-// Setup Modbus RTU Client
-const client = new ModbusRTU();
+// Create a TCP server to handle RTU connections
+const server = net.createServer((socket) => {
+    console.log("RTU connected:", socket.remoteAddress, ":", socket.remotePort);
 
-// Connect to RTU
-client.connectTCP(RTU_IP, { port: RTU_PORT }, () => {
-    console.log(`Connected to RTU at ${RTU_IP}:${RTU_PORT}`);
+    // Handle incoming data from RTU
+    socket.on("data", (data) => {
+        console.log("Received data from RTU:", data.toString("hex"));
+        // Parse the data here based on RTU's data format if needed
+    });
 
-    // Set Modbus Slave ID
-    client.setID(1);
+    // Handle RTU disconnect
+    socket.on("end", () => {
+        console.log("RTU disconnected.");
+    });
 
-    // Poll AIN0 Data Periodically
-    setInterval(() => {
-        client.readInputRegisters(0, 2) // Read AIN0 and AIN1
-            .then(data => {
-                const ain0 = data.data[0] / 100; // Scale by 100
-                const ain1 = data.data[1] / 100; // Scale by 100
-                console.log(`AIN0: ${ain0}, AIN1: ${ain1}`);
-            })
-            .catch(err => console.error('Error reading AIN:', err));
-    }, 5000); // Poll every 5 seconds
+    // Handle errors
+    socket.on("error", (err) => {
+        console.error("Socket error:", err.message);
+    });
+});
+
+// Start listening for RTU connections
+server.listen(MODBUS_PORT, () => {
+    console.log(`Modbus TCP server listening on port ${MODBUS_PORT}`);
 });
