@@ -1,41 +1,65 @@
-const express = require("express");
-const net = require("net");
+const ModbusRTU = require('modbus-serial');
+const net = require('net');
 
-const app = express();
-const HTTP_PORT = process.env.PORT || 10000; // For Render health check
-const MODBUS_PORT = 1234; // Port where RTU will send data
+// Create a Modbus TCP server
+const server = net.createServer();
+const modbus = new ModbusRTU();
 
-// Start Express server (for health checks or status monitoring)
-app.get("/", (req, res) => {
-    res.send("Modbus TCP server is running and waiting for RTU data!");
-});
+// Define register data (e.g., AIN0, AIN1)
+const registers = {
+    0x0000: 123, // Example value for AIN0
+    0x0001: 456, // Example value for AIN1
+};
 
-app.listen(HTTP_PORT, () => {
-    console.log(`HTTP server running on port ${HTTP_PORT}`);
-});
+// Handle incoming connections
+server.on('connection', (socket) => {
+    console.log(`RTU connected: ${socket.remoteAddress} : ${socket.remotePort}`);
 
-// Create a TCP server to handle RTU connections
-const server = net.createServer((socket) => {
-    console.log("RTU connected:", socket.remoteAddress, ":", socket.remotePort);
+    socket.on('data', (data) => {
+        console.log(`Received data: ${data.toString('hex')}`);
 
-    // Handle incoming data from RTU
-    socket.on("data", (data) => {
-        console.log("Received data from RTU:", data.toString("hex"));
-        // Parse the data here based on RTU's data format if needed
+        // Decode the Modbus request
+        try {
+            const unitId = data.readUInt8(6); // Extract Unit ID
+            const functionCode = data.readUInt8(7); // Extract Function Code
+            const startAddress = data.readUInt16BE(8); // Extract Start Address
+            const quantity = data.readUInt16BE(10); // Extract Quantity
+
+            console.log(`Unit ID: ${unitId}, Function Code: ${functionCode}, Start Address: ${startAddress}, Quantity: ${quantity}`);
+
+            // Check Function Code
+            if (functionCode === 0x04) { // Read Input Registers
+                const response = Buffer.alloc(3 + quantity * 2);
+                response.writeUInt8(unitId, 0); // Unit ID
+                response.writeUInt8(functionCode, 1); // Function Code
+                response.writeUInt8(quantity * 2, 2); // Byte Count
+
+                for (let i = 0; i < quantity; i++) {
+                    const registerValue = registers[startAddress + i] || 0; // Default to 0 if not set
+                    response.writeUInt16BE(registerValue, 3 + i * 2);
+                }
+
+                socket.write(response);
+                console.log(`Sent response: ${response.toString('hex')}`);
+            } else {
+                console.log('Unsupported function code.');
+            }
+        } catch (error) {
+            console.error(`Error processing data: ${error.message}`);
+        }
     });
 
-    // Handle RTU disconnect
-    socket.on("end", () => {
-        console.log("RTU disconnected.");
+    socket.on('close', () => {
+        console.log('RTU disconnected.');
     });
 
-    // Handle errors
-    socket.on("error", (err) => {
-        console.error("Socket error:", err.message);
+    socket.on('error', (error) => {
+        console.error(`Socket error: ${error.message}`);
     });
 });
 
-// Start listening for RTU connections
-server.listen(MODBUS_PORT, () => {
-    console.log(`Modbus TCP server listening on port ${MODBUS_PORT}`);
+// Start the server
+const PORT = 1234;
+server.listen(PORT, () => {
+    console.log(`Modbus TCP server listening on port ${PORT}`);
 });
