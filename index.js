@@ -30,14 +30,7 @@ setInterval(() => {
 }, 5000);
 
 // Create a Modbus TCP server
-const server = new ModbusServer({
-    host: "0.0.0.0", // Listen on all interfaces
-    port: 1234,      // Modbus TCP port
-    debug: true,     // Enable debugging output
-});
-
-// Handle Modbus requests for reading input registers (Function Code 4)
-server.on("read-input-registers", (request, callback) => {
+const server = new ModbusServer((request, callback) => {
     const unitID = request.unitID; // Extract unit ID
     const startAddress = request.startAddress;
     const quantity = request.quantity;
@@ -60,9 +53,10 @@ server.on("read-input-registers", (request, callback) => {
         console.error(`Unknown Unit ID: ${unitID}`);
         callback({ code: 2 }); // Modbus exception code 2 (Illegal Data Address)
     }
+}, {
+    host: "0.0.0.0", // Listen on all interfaces
+    port: 1234,      // Modbus TCP port
+    debug: true,     // Enable debugging output
 });
 
-// Start the server
-server.listen(() => {
-    console.log("Modbus TCP server is running at 0.0.0.0:1234");
-});
+console.log("Modbus TCP server is running at 0.0.0.0:1234");
