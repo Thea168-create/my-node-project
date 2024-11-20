@@ -1,6 +1,6 @@
 const { MongoClient } = require("mongodb");
 
-const mongoURI = "ongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&tls=true";
+const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&tls=true";
 
 const client = new MongoClient(mongoURI, { useUnifiedTopology: true });
 
