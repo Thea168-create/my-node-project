@@ -1,20 +1,94 @@
 const { MongoClient } = require("mongodb");
+const ModbusServer = require("modbus-serial").ServerTCP;
 
-const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&tls=true";
+// MongoDB Connection Setup
+const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.mongodb.net/modbus_logs?retryWrites=true&w=majority&tls=true";
+const client = new MongoClient(mongoURI);
 
-const client = new MongoClient(mongoURI, { useUnifiedTopology: true });
-
-async function testConnection() {
+async function connectMongoDB() {
     try {
         await client.connect();
         console.log("Connected to MongoDB successfully!");
-        await client.db("modbus_logs").collection("test").insertOne({ message: "Test successful" });
-        console.log("Test document inserted.");
     } catch (error) {
         console.error("MongoDB connection error:", error);
-    } finally {
-        await client.close();
     }
 }
 
-testConnection();
+// Call the function to establish the MongoDB connection
+connectMongoDB();
+
+// Simulated modular register mapping for multiple RTUs
+const registers = {
+    1: { // RTU with Unit ID 1
+        0x0000: 12300,
+        0x0002: 45600,
+        0x0004: 78900,
+        0x0006: 10100,
+        0x0008: 11200,
+        0x000A: 13100,
+    },
+    2: { // RTU with Unit ID 2
+        0x0000: 54321,
+        0x0002: 98765,
+        0x0004: 22222,
+        0x0006: 44444,
+        0x0008: 55555,
+        0x000A: 66666,
+    },
+};
+
+// Update sensor values periodically to simulate real-time changes
+setInterval(() => {
+    for (const unitID in registers) {
+        for (const address in registers[unitID]) {
+            registers[unitID][address] += Math.floor(Math.random() * 200 - 100); // Add random variation
+        }
+    }
+}, 5000);
+
+// Create a Modbus TCP server
+const server = new ModbusServer((request, callback) => {
+    const unitID = request.unitID; // Extract unit ID
+    const startAddress = request.startAddress;
+    const quantity = request.quantity;
+
+    console.log(
+        `Received request from Unit ID ${unitID}: Start Address ${startAddress}, Quantity ${quantity}`
+    );
+
+    if (registers[unitID]) { // Check if unit ID exists
+        const response = [];
+        for (let i = 0; i < quantity; i++) {
+            const address = startAddress + i * 2; // Compute address for each register
+            const value = registers[unitID][address] || 0; // Return default value if address is missing
+            response.push(Math.floor(value / 65536)); // High word
+            response.push(value % 65536); // Low word
+        }
+
+        console.log(`Responding to Unit ID ${unitID} with data: ${response}`);
+
+        // Insert data into MongoDB
+        const db = client.db("modbus_logs");
+        const collection = db.collection("data_logs");
+        collection.insertOne({
+            unitID: unitID,
+            timestamp: new Date(),
+            data: response
+        }).then(() => {
+            console.log("Logged data to MongoDB");
+        }).catch((err) => {
+            console.error("Error logging data to MongoDB:", err);
+        });
+
+        callback(null, response); // Send response
+    } else {
+        console.error(`Unknown Unit ID: ${unitID}`);
+        callback({ code: 2 }); // Modbus exception code 2 (Illegal Data Address)
+    }
+}, {
+    host: "0.0.0.0", // Listen on all interfaces
+    port: 1234,      // Modbus TCP port
+    debug: true,     // Enable debugging output
+});
+
+console.log("Modbus TCP server is running at 0.0.0.0:1234");
