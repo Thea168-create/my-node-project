@@ -31,7 +31,7 @@ setInterval(() => {
 
 // Create a Modbus TCP server
 const server = new ModbusServer((request, callback) => {
-    const unitID = request.unitID; // Extract unit ID
+    const unitID = request.unitID || 1; // Use Unit ID 1 as default if none provided
     const startAddress = request.startAddress;
     const quantity = request.quantity;
 
