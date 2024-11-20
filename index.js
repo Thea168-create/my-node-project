@@ -1,21 +1,15 @@
+const net = require("net");
 const { MongoClient } = require("mongodb");
-const ModbusServer = require("modbus-serial").ServerTCP;
-
-// MongoDB Connection Setup
-const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.mongodb.net/modbus_logs?retryWrites=true&w=majority&tls=true";
+// MongoDB connection setup
+const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 const client = new MongoClient(mongoURI);
-
-async function connectMongoDB() {
-    try {
-        await client.connect();
-        console.log("Connected to MongoDB successfully!");
-    } catch (error) {
-        console.error("MongoDB connection error:", error);
-    }
-}
-
-// Call the function to establish the MongoDB connection
-connectMongoDB();
+let db;
+client.connect()
+    .then(() => {
+        db = client.db("modbus_logs"); // Use "modbus_logs" database
+        console.log("Connected to MongoDB");
+    })
+    .catch((err) => console.error("MongoDB connection error:", err));
 
 // Simulated modular register mapping for multiple RTUs
 const registers = {
@@ -35,6 +29,8 @@ const registers = {
         0x0008: 55555,
         0x000A: 66666,
     },
+    1: { 0x0000: 12300, 0x0002: 45600, 0x0004: 78900 },
+    2: { 0x0000: 54321, 0x0002: 98765, 0x0004: 22222 },
 };
 
 // Update sensor values periodically to simulate real-time changes
@@ -45,50 +41,99 @@ setInterval(() => {
         }
     }
 }, 5000);
+// Create a TCP server
+// TCP server setup
+const server = net.createServer((socket) => {
+    console.log(`Client connected: ${socket.remoteAddress}:${socket.remotePort}`);
 
-// Create a Modbus TCP server
-const server = new ModbusServer((request, callback) => {
-    const unitID = request.unitID; // Extract unit ID
-    const startAddress = request.startAddress;
-    const quantity = request.quantity;
+    // Handle incoming data
+    socket.on("data", (data) => {
+    socket.on("data", async (data) => {
+        try {
+            console.log(`Received data: ${data.toString("hex")}`);
+            const unitID = data.readUInt8(0); // Unit ID
+            const functionCode = data.readUInt8(1); // Function Code
+            const startAddress = data.readUInt16BE(2); // Starting Address
+            const quantity = data.readUInt16BE(4); // Number of Registers to Read
+            const quantity = data.readUInt16BE(4); // Number of Registers
 
-    console.log(
-        `Received request from Unit ID ${unitID}: Start Address ${startAddress}, Quantity ${quantity}`
-    );
+            console.log(
+                `Request - Unit ID: ${unitID}, Function Code: ${functionCode}, Start Address: ${startAddress}, Quantity: ${quantity}`
+            );
+            if (functionCode === 0x04 && registers[unitID]) {
+                // Prepare response
+                const response = Buffer.alloc(3 + quantity * 2);
+                response.writeUInt8(unitID, 0); // Unit ID
+                response.writeUInt8(functionCode, 1); // Function Code
+                response.writeUInt8(quantity * 2, 2); // Byte Count
 
-    if (registers[unitID]) { // Check if unit ID exists
-        const response = [];
-        for (let i = 0; i < quantity; i++) {
-            const address = startAddress + i * 2; // Compute address for each register
-            const value = registers[unitID][address] || 0; // Return default value if address is missing
-            response.push(Math.floor(value / 65536)); // High word
-            response.push(value % 65536); // Low word
+            if (functionCode === 0x04) {
+                // Function Code 4: Read Input Registers
+                if (registers[unitID]) {
+                    const response = Buffer.alloc(3 + quantity * 2);
+                    response.writeUInt8(unitID, 0); // Unit ID
+                    response.writeUInt8(functionCode, 1); // Function Code
+                    response.writeUInt8(quantity * 2, 2); // Byte Count
+                for (let i = 0; i < quantity; i++) {
+                    const address = startAddress + i * 2;
+                    const value = registers[unitID][address] || 0;
+                    response.writeUInt16BE(value, 3 + i * 2);
+                }
+
+                    for (let i = 0; i < quantity; i++) {
+                        const address = startAddress + i * 2;
+                        const value = registers[unitID][address] || 0;
+                        response.writeUInt16BE(value, 3 + i * 2);
+                    }
+                console.log(`Responding with: ${response.toString("hex")}`);
+                socket.write(response);
+
+                    console.log(`Responding with: ${response.toString("hex")}`);
+                    socket.write(response);
+                } else {
+                    console.error(`Unknown Unit ID: ${unitID}`);
+                    const errorResponse = Buffer.from([
+                        unitID,
+                        functionCode | 0x80, // Error flag
+                        0x02, // Exception Code: Illegal Data Address
+                    ]);
+                    socket.write(errorResponse);
+                }
+                // Log data to MongoDB
+                await db.collection("logs").insertOne({
+                    timestamp: new Date(),
+                    unitID,
+                    startAddress,
+                    quantity,
+                    values: response.toString("hex"),
+                });
+                console.log("Data logged to MongoDB");
+            } else {
+                console.error(`Unsupported Function Code: ${functionCode}`);
+                console.error(`Unsupported request: Function Code ${functionCode} or Unit ID ${unitID}`);
+            }
+        } catch (error) {
+            console.error(`Error processing request: ${error.message}`);
         }
+    });
 
-        console.log(`Responding to Unit ID ${unitID} with data: ${response}`);
-
-        // Insert data into MongoDB
-        const db = client.db("modbus_logs");
-        const collection = db.collection("data_logs");
-        collection.insertOne({
-            unitID: unitID,
-            timestamp: new Date(),
-            data: response
-        }).then(() => {
-            console.log("Logged data to MongoDB");
-        }).catch((err) => {
-            console.error("Error logging data to MongoDB:", err);
-        });
-
-        callback(null, response); // Send response
-    } else {
-        console.error(`Unknown Unit ID: ${unitID}`);
-        callback({ code: 2 }); // Modbus exception code 2 (Illegal Data Address)
-    }
-}, {
-    host: "0.0.0.0", // Listen on all interfaces
-    port: 1234,      // Modbus TCP port
-    debug: true,     // Enable debugging output
+    // Handle client disconnect
+    socket.on("close", () => {
+        console.log(`Client disconnected: ${socket.remoteAddress}:${socket.remotePort}`);
+    });
+    // Handle socket errors
+    socket.on("error", (error) => {
+        console.error(`Socket error: ${error.message}`);
+    });
+    socket.on("close", () => console.log("Client disconnected"));
+    socket.on("error", (error) => console.error("Socket error:", error.message));
 });
 
-console.log("Modbus TCP server is running at 0.0.0.0:1234");
+// Start the TCP server
+const PORT = 1234;
+const HOST = "0.0.0.0";
+server.listen(PORT, HOST, () => {
+    console.log(`Modbus TCP server running at ${HOST}:${PORT}`);
+server.listen(1234, "0.0.0.0", () => {
+    console.log("Modbus TCP server running on port 1234");
+});
