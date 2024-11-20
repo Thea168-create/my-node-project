@@ -2,7 +2,7 @@ const net = require("net");
 const { MongoClient } = require("mongodb");
 
 // MongoDB connection setup
-const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&tls=true&directConnection=true";
+const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&tls=true";
 const client = new MongoClient(mongoURI);
 let db;
 
