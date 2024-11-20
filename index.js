@@ -1,71 +1,68 @@
-const ModbusRTU = require("modbus-serial");
-const net = require("net");
+const ModbusServer = require("modbus-serial").ServerTCP;
 
-// Create a Modbus TCP server using a simple TCP socket
-const server = net.createServer();
-const PORT = 1234; // Port for the Modbus server
-const HOST = "0.0.0.0"; // Bind to all network interfaces
-
-// Mock registers to simulate AIN values
+// Simulated modular register mapping for multiple RTUs
 const registers = {
-  0x0000: 12300, // AIN0 value (e.g., 123.00 after dividing by 100)
-  0x0002: 45600, // AIN1 value (e.g., 456.00 after dividing by 100)
-  0x0004: 78900, // AIN2 value (e.g., 789.00 after dividing by 100)
-  0x0006: 10100, // AIN3 value (e.g., 101.00 after dividing by 100)
-  0x0008: 11200, // AIN4 value (e.g., 112.00 after dividing by 100)
-  0x000A: 13100, // AIN5 value (e.g., 131.00 after dividing by 100)
+    1: { // RTU with Unit ID 1
+        0x0000: 12300,
+        0x0002: 45600,
+        0x0004: 78900,
+        0x0006: 10100,
+        0x0008: 11200,
+        0x000A: 13100,
+    },
+    2: { // RTU with Unit ID 2
+        0x0000: 54321,
+        0x0002: 98765,
+        0x0004: 22222,
+        0x0006: 44444,
+        0x0008: 55555,
+        0x000A: 66666,
+    },
 };
 
-// Handle incoming Modbus TCP requests
-server.on("connection", (socket) => {
-  console.log(`RTU connected: ${socket.remoteAddress}:${socket.remotePort}`);
-
-  socket.on("data", (data) => {
-    try {
-      console.log(`Received request: ${data.toString("hex")}`);
-
-      // Decode Modbus request
-      const unitId = data.readUInt8(0); // Unit ID
-      const functionCode = data.readUInt8(1); // Function Code
-      const startAddress = data.readUInt16BE(2); // Starting Address
-      const quantity = data.readUInt16BE(4); // Number of Registers to Read
-
-      console.log(
-        `Unit ID: ${unitId}, Function Code: ${functionCode}, Start Address: ${startAddress}, Quantity: ${quantity}`
-      );
-
-      if (functionCode === 0x04) {
-        // Function Code 4: Read Input Registers
-        const response = Buffer.alloc(3 + quantity * 2);
-        response.writeUInt8(unitId, 0); // Unit ID
-        response.writeUInt8(functionCode, 1); // Function Code
-        response.writeUInt8(quantity * 2, 2); // Byte Count
-
-        for (let i = 0; i < quantity; i++) {
-          const registerValue = registers[startAddress + i * 2] || 0;
-          response.writeUInt16BE(registerValue, 3 + i * 2);
+// Update sensor values periodically to simulate real-time changes
+setInterval(() => {
+    for (const unitID in registers) {
+        for (const address in registers[unitID]) {
+            registers[unitID][address] += Math.floor(Math.random() * 200 - 100); // Add random variation
         }
-
-        socket.write(response);
-        console.log(`Sent response: ${response.toString("hex")}`);
-      } else {
-        console.log("Unsupported function code.");
-      }
-    } catch (error) {
-      console.error(`Error processing data: ${error.message}`);
     }
-  });
+}, 5000);
 
-  socket.on("close", () => {
-    console.log("RTU disconnected.");
-  });
+// Create a Modbus TCP server
+const server = new ModbusServer({
+    host: "0.0.0.0", // Listen on all interfaces
+    port: 1234,      // Modbus TCP port
+    debug: true,     // Enable debugging output
+});
 
-  socket.on("error", (error) => {
-    console.error(`Socket error: ${error.message}`);
-  });
+// Handle Modbus requests for reading input registers (Function Code 4)
+server.on("read-input-registers", (request, callback) => {
+    const unitID = request.unitID; // Extract unit ID
+    const startAddress = request.startAddress;
+    const quantity = request.quantity;
+
+    console.log(
+        `Received request from Unit ID ${unitID}: Start Address ${startAddress}, Quantity ${quantity}`
+    );
+
+    if (registers[unitID]) { // Check if unit ID exists
+        const response = [];
+        for (let i = 0; i < quantity; i++) {
+            const address = startAddress + i * 2; // Compute address for each register
+            const value = registers[unitID][address] || 0; // Return default value if address is missing
+            response.push(Math.floor(value / 65536)); // High word
+            response.push(value % 65536); // Low word
+        }
+        console.log(`Responding to Unit ID ${unitID} with data: ${response}`);
+        callback(null, response); // Send response
+    } else {
+        console.error(`Unknown Unit ID: ${unitID}`);
+        callback({ code: 2 }); // Modbus exception code 2 (Illegal Data Address)
+    }
 });
 
 // Start the server
-server.listen(PORT, HOST, () => {
-  console.log(`Modbus TCP server running at ${HOST}:${PORT}`);
+server.listen(() => {
+    console.log("Modbus TCP server is running at 0.0.0.0:1234");
 });
