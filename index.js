@@ -1,28 +1,23 @@
 const net = require("net");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient } = require("mongodb");
 
-const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-const client = new MongoClient(mongoURI, {
-    serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-    },
-});
+// MongoDB connection setup
+const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majoritytls=true&directConnection=true";
+const client = new MongoClient(mongoURI);
 let db;
 
-async function connectToDatabase() {
-    try {
-        await client.connect();
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. Connected successfully.");
-        db = client.db("modbus_logs");
-    } catch (error) {
-        console.error("MongoDB connection error:", error);
-        process.exit(1); // Exit the process if connection fails
-    }
-}
-connectToDatabase();
+client.connect()
+    .then(() => {
+        db = client.db("modbus_logs"); // Use "modbus_logs" database
+        console.log("Connected to MongoDB");
+    })
+    .catch((err) => console.error("MongoDB connection error:", err));
+
+// Simulated modular register mapping for multiple RTUs
+const registers = {
+    1: { 0x0000: 12300, 0x0002: 45600, 0x0004: 78900 },
+    2: { 0x0000: 54321, 0x0002: 98765, 0x0004: 22222 },
+};
 
 // TCP server setup
 const server = net.createServer((socket) => {
@@ -31,41 +26,41 @@ const server = net.createServer((socket) => {
     socket.on("data", async (data) => {
         try {
             console.log(`Received data: ${data.toString("hex")}`);
-            const unitID = data.readUInt8(0);
-            const functionCode = data.readUInt8(1);
-            const startAddress = data.readUInt16BE(2);
-            const quantity = data.readUInt16BE(4);
+            const unitID = data.readUInt8(0); // Unit ID
+            const functionCode = data.readUInt8(1); // Function Code
+            const startAddress = data.readUInt16BE(2); // Starting Address
+            const quantity = data.readUInt16BE(4); // Number of Registers
 
-            if (functionCode === 0x04) {
+            if (functionCode === 0x04 && registers[unitID]) {
+                // Prepare response
                 const response = Buffer.alloc(3 + quantity * 2);
-                response.writeUInt8(unitID, 0);
-                response.writeUInt8(functionCode, 1);
-                response.writeUInt8(quantity * 2, 2);
+                response.writeUInt8(unitID, 0); // Unit ID
+                response.writeUInt8(functionCode, 1); // Function Code
+                response.writeUInt8(quantity * 2, 2); // Byte Count
 
                 for (let i = 0; i < quantity; i++) {
-                    response.writeUInt16BE(0, 3 + i * 2); // Replace 0 with actual register value
+                    const address = startAddress + i * 2;
+                    const value = registers[unitID][address] || 0;
+                    response.writeUInt16BE(value, 3 + i * 2);
                 }
 
                 console.log(`Responding with: ${response.toString("hex")}`);
                 socket.write(response);
 
-                if (db) {
-                    await db.collection("logs").insertOne({
-                        timestamp: new Date(),
-                        unitID,
-                        startAddress,
-                        quantity,
-                        values: response.toString("hex"),
-                    });
-                    console.log("Data logged to MongoDB");
-                } else {
-                    console.error("Database connection not initialized.");
-                }
+                // Log data to MongoDB
+                await db.collection("logs").insertOne({
+                    timestamp: new Date(),
+                    unitID,
+                    startAddress,
+                    quantity,
+                    values: response.toString("hex"),
+                });
+                console.log("Data logged to MongoDB");
             } else {
-                console.error(`Unsupported Function Code: ${functionCode}`);
+                console.error(`Unsupported request: Function Code ${functionCode} or Unit ID ${unitID}`);
             }
         } catch (error) {
-            console.error("Error processing data:", error);
+            console.error(`Error processing request: ${error.message}`);
         }
     });
 
@@ -75,10 +70,4 @@ const server = net.createServer((socket) => {
 
 server.listen(1234, "0.0.0.0", () => {
     console.log("Modbus TCP server running on port 1234");
-});
-
-process.on("SIGINT", async () => {
-    console.log("Shutting down server...");
-    await client.close();
-    process.exit(0);
 });
