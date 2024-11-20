@@ -37,6 +37,13 @@ const server = net.createServer((socket) => {
     socket.on("data", (data) => {
         try {
             console.log(`Received data: ${data.toString("hex")}`);
+
+            // Check if data length is sufficient
+            if (data.length < 6) {
+                console.error("Error: Insufficient data length");
+                return;
+            }
+
             const unitID = data.readUInt8(0); // Unit ID
             const functionCode = data.readUInt8(1); // Function Code
             const startAddress = data.readUInt16BE(2); // Starting Address
@@ -73,6 +80,12 @@ const server = net.createServer((socket) => {
                 }
             } else {
                 console.error(`Unsupported Function Code: ${functionCode}`);
+                const errorResponse = Buffer.from([
+                    unitID,
+                    functionCode | 0x80, // Error flag
+                    0x01, // Exception Code: Illegal Function Code
+                ]);
+                socket.write(errorResponse);
             }
         } catch (error) {
             console.error(`Error processing request: ${error.message}`);
