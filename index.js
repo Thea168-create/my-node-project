@@ -2,7 +2,7 @@ const net = require("net");
 const { MongoClient } = require("mongodb");
 
 // MongoDB connection setup
-const mongoURI = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const mongoURI = process.env.MONGO_URI || "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 const client = new MongoClient(mongoURI);
 let db;
 
@@ -11,7 +11,9 @@ client.connect()
         db = client.db("modbus_logs"); // Use "modbus_logs" database
         console.log("Connected to MongoDB");
     })
-    .catch((err) => console.error("MongoDB connection error:", err));
+    .catch((err) => {
+        console.error("MongoDB connection error:", err);
+    });
 
 // Simulated modular register mapping for multiple RTUs
 const registers = {
@@ -25,6 +27,11 @@ const server = net.createServer((socket) => {
 
     socket.on("data", async (data) => {
         try {
+            if (data.length < 6) {
+                console.error("Invalid data length");
+                return;
+            }
+
             console.log(`Received data: ${data.toString("hex")}`);
             const unitID = data.readUInt8(0); // Unit ID
             const functionCode = data.readUInt8(1); // Function Code
@@ -32,7 +39,6 @@ const server = net.createServer((socket) => {
             const quantity = data.readUInt16BE(4); // Number of Registers
 
             if (functionCode === 0x04 && registers[unitID]) {
-                // Prepare response
                 const response = Buffer.alloc(3 + quantity * 2);
                 response.writeUInt8(unitID, 0); // Unit ID
                 response.writeUInt8(functionCode, 1); // Function Code
@@ -47,9 +53,15 @@ const server = net.createServer((socket) => {
                 console.log(`Responding with: ${response.toString("hex")}`);
                 socket.write(response);
 
-                // Log data to MongoDB
+                if (!db) {
+                    console.error("Database is not initialized. Cannot log data.");
+                    return;
+                }
+
                 await db.collection("logs").insertOne({
                     timestamp: new Date(),
+                    clientIP: socket.remoteAddress,
+                    clientPort: socket.remotePort,
                     unitID,
                     startAddress,
                     quantity,
@@ -70,4 +82,8 @@ const server = net.createServer((socket) => {
 
 server.listen(1234, "0.0.0.0", () => {
     console.log("Modbus TCP server running on port 1234");
+});
+
+server.on("error", (error) => {
+    console.error("Server error:", error.message);
 });
