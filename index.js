@@ -1,4 +1,4 @@
-const ModbusServer = require("modbus-serial").ServerTCP;
+const net = require("net");
 
 // Simulated modular register mapping for multiple RTUs
 const registers = {
@@ -29,34 +29,71 @@ setInterval(() => {
     }
 }, 5000);
 
-// Create a Modbus TCP server
-const server = new ModbusServer((request, callback) => {
-    const unitID = request.unitID || 1; // Use Unit ID 1 as default if none provided
-    const startAddress = request.startAddress;
-    const quantity = request.quantity;
+// Create a TCP server
+const server = net.createServer((socket) => {
+    console.log(`Client connected: ${socket.remoteAddress}:${socket.remotePort}`);
 
-    console.log(
-        `Received request from Unit ID ${unitID}: Start Address ${startAddress}, Quantity ${quantity}`
-    );
+    // Handle incoming data
+    socket.on("data", (data) => {
+        try {
+            console.log(`Received data: ${data.toString("hex")}`);
+            const unitID = data.readUInt8(0); // Unit ID
+            const functionCode = data.readUInt8(1); // Function Code
+            const startAddress = data.readUInt16BE(2); // Starting Address
+            const quantity = data.readUInt16BE(4); // Number of Registers to Read
 
-    if (registers[unitID]) { // Check if unit ID exists
-        const response = [];
-        for (let i = 0; i < quantity; i++) {
-            const address = startAddress + i * 2; // Compute address for each register
-            const value = registers[unitID][address] || 0; // Return default value if address is missing
-            response.push(Math.floor(value / 65536)); // High word
-            response.push(value % 65536); // Low word
+            console.log(
+                `Request - Unit ID: ${unitID}, Function Code: ${functionCode}, Start Address: ${startAddress}, Quantity: ${quantity}`
+            );
+
+            if (functionCode === 0x04) {
+                // Function Code 4: Read Input Registers
+                if (registers[unitID]) {
+                    const response = Buffer.alloc(3 + quantity * 2);
+                    response.writeUInt8(unitID, 0); // Unit ID
+                    response.writeUInt8(functionCode, 1); // Function Code
+                    response.writeUInt8(quantity * 2, 2); // Byte Count
+
+                    for (let i = 0; i < quantity; i++) {
+                        const address = startAddress + i * 2;
+                        const value = registers[unitID][address] || 0;
+                        response.writeUInt16BE(value, 3 + i * 2);
+                    }
+
+                    console.log(`Responding with: ${response.toString("hex")}`);
+                    socket.write(response);
+                } else {
+                    console.error(`Unknown Unit ID: ${unitID}`);
+                    const errorResponse = Buffer.from([
+                        unitID,
+                        functionCode | 0x80, // Error flag
+                        0x02, // Exception Code: Illegal Data Address
+                    ]);
+                    socket.write(errorResponse);
+                }
+            } else {
+                console.error(`Unsupported Function Code: ${functionCode}`);
+            }
+        } catch (error) {
+            console.error(`Error processing request: ${error.message}`);
         }
-        console.log(`Responding to Unit ID ${unitID} with data: ${response}`);
-        callback(null, response); // Send response
-    } else {
-        console.error(`Unknown Unit ID: ${unitID}`);
-        callback({ code: 2 }); // Modbus exception code 2 (Illegal Data Address)
-    }
-}, {
-    host: "0.0.0.0", // Listen on all interfaces
-    port: 1234,      // Modbus TCP port
-    debug: true,     // Enable debugging output
+    });
+
+    // Handle client disconnect
+    socket.on("close", () => {
+        console.log(`Client disconnected: ${socket.remoteAddress}:${socket.remotePort}`);
+    });
+
+    // Handle socket errors
+    socket.on("error", (error) => {
+        console.error(`Socket error: ${error.message}`);
+    });
 });
 
-console.log("Modbus TCP server is running at 0.0.0.0:1234");
+// Start the TCP server
+const PORT = 1234;
+const HOST = "0.0.0.0";
+
+server.listen(PORT, HOST, () => {
+    console.log(`Modbus TCP server running at ${HOST}:${PORT}`);
+});
