@@ -93,7 +93,7 @@ const server = net.createServer((socket) => {
 
           // Log request to MongoDB
           const database = client.db("modbus_logs");
-          const collection = database.collection("modbusLogs");
+          const collection = database.collection("logs");
           const logEntry = {
             unitID,
             functionCode,
