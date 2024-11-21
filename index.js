@@ -1,8 +1,25 @@
 const net = require("net");
+const { MongoClient } = require("mongodb"); // Import MongoDB client
+
+// MongoDB connection URI (update with your credentials)
+const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.mongodb.net/modbus_logs?retryWrites=true&w=majority";
+const client = new MongoClient(uri);
+
+// Connect to MongoDB
+async function connectDB() {
+    try {
+        await client.connect();
+        console.log("Connected to MongoDB");
+    } catch (err) {
+        console.error("MongoDB connection error:", err);
+        process.exit(1); // Exit the process if MongoDB connection fails
+    }
+}
+connectDB();
 
 // Simulated modular register mapping for multiple RTUs
 const registers = {
-    1: { // RTU with Unit ID 1
+    1: {
         0x0000: 12300,
         0x0002: 45600,
         0x0004: 78900,
@@ -10,7 +27,7 @@ const registers = {
         0x0008: 11200,
         0x000A: 13100,
     },
-    2: { // RTU with Unit ID 2
+    2: {
         0x0000: 54321,
         0x0002: 98765,
         0x0004: 22222,
@@ -33,12 +50,10 @@ setInterval(() => {
 const server = net.createServer((socket) => {
     console.log(`Client connected: ${socket.remoteAddress}:${socket.remotePort}`);
 
-    // Handle incoming data
-    socket.on("data", (data) => {
+    socket.on("data", async (data) => {
         try {
             console.log(`Received data: ${data.toString("hex")}`);
 
-            // Check if data length is sufficient
             if (data.length < 6) {
                 console.error("Error: Insufficient data length");
                 return;
@@ -69,6 +84,20 @@ const server = net.createServer((socket) => {
 
                     console.log(`Responding with: ${response.toString("hex")}`);
                     socket.write(response);
+
+                    // Log request to MongoDB
+                    const database = client.db("modbus_logs");
+                    const collection = database.collection("modbusLogs");
+                    const logEntry = {
+                        unitID,
+                        functionCode,
+                        startAddress,
+                        quantity,
+                        timestamp: new Date(),
+                        response: response.toString("hex"),
+                    };
+                    await collection.insertOne(logEntry);
+                    console.log(`Logged data to MongoDB: ${JSON.stringify(logEntry)}`);
                 } else {
                     console.error(`Unknown Unit ID: ${unitID}`);
                     const errorResponse = Buffer.from([
@@ -92,12 +121,10 @@ const server = net.createServer((socket) => {
         }
     });
 
-    // Handle client disconnect
     socket.on("close", () => {
         console.log(`Client disconnected: ${socket.remoteAddress}:${socket.remotePort}`);
     });
 
-    // Handle socket errors
     socket.on("error", (error) => {
         console.error(`Socket error: ${error.message}`);
     });
