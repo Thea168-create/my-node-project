@@ -1,5 +1,6 @@
 const net = require("net");
 const { MongoClient, ServerApiVersion } = require("mongodb"); // Import MongoDB client
+const moment = require("moment-timezone"); // Import moment-timezone
 
 // MongoDB connection URI (update with your credentials)
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
@@ -99,7 +100,8 @@ const server = net.createServer((socket) => {
             functionCode,
             startAddress,
             quantity,
-            timestamp: new Date(),
+            // Adjust timestamp to Asia/Phnom_Penh timezone
+            timestamp: moment().tz("Asia/Phnom_Penh").format(),
             response: response.toString("hex"),
           };
           await collection.insertOne(logEntry);
