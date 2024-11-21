@@ -2,7 +2,7 @@ const net = require("net");
 const { MongoClient, ServerApiVersion } = require("mongodb"); // Import MongoDB client
 
 // MongoDB connection URI (update with your credentials)
-const uri = "mongodb+srv://thy_thea:<db_password>@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
+const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
