@@ -6,14 +6,12 @@ const server = net.createServer((socket) => {
 
   // Handle incoming data
   socket.on("data", (data) => {
-    console.log(`Received raw data from RTU: ${data.toString("hex")}`);
+    console.log(`Raw data (hex): ${data.toString("hex")}`);  // Log the data as hexadecimal
+    console.log(`Raw data (ASCII): ${data.toString("utf8")}`); // Attempt to interpret as ASCII text
 
-    // Parse the raw data into meaningful values
+    // Optionally, parse the data further
     const parsedData = parseRawData(data);
     console.log("Parsed Data:", parsedData);
-
-    // Optionally save the parsed data to a database
-    // saveToDatabase(parsedData);
   });
 
   // Handle client disconnection
@@ -27,7 +25,7 @@ const server = net.createServer((socket) => {
   });
 });
 
-// Function to parse raw data (example)
+// Function to parse raw data
 function parseRawData(data) {
   const values = [];
   // Example: Parse data as 16-bit integers (big-endian)
