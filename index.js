@@ -8,7 +8,7 @@ const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology:
 
 // Modbus Register Values (example)
 const registers = {
-  1: { 0x0000: 1234 }, // Make sure the value is correctly set here
+  1: { 0x0000: 1234 }, // Ensure the value is correctly set here
 };
 
 // Modbus TCP server setup
@@ -32,23 +32,7 @@ const modbusServer = new ModbusRTU.ServerTCP(
   }
 );
 
-modbusServer.on("connection", (socket) => {
-  console.log("RTU connected: ", socket.remoteAddress);
-
-  // Handle Login Message and Respond with ACK
-  socket.on("data", (data) => {
-    if (data.toString("hex").startsWith("0103")) { // Example: checking if login message received
-      console.log("Login message received");
-
-      // Example response with the correct ACK message
-      const ackMessage = Buffer.from([0x01, 0x03, 0x02, 0x00, 0x01]); // Responding with ACK
-      socket.write(ackMessage);
-      console.log("Sent login ACK");
-    }
-  });
-});
-
-modbusServer.listen(1234, () => {
+modbusServer.start(() => {
   console.log("Modbus TCP Server is running on port 1234");
 });
 
