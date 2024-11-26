@@ -24,12 +24,8 @@ connectDB();
 // Simulated register data for multiple RTUs
 const registers = {
   1: {
-    0x0000: 12300,  // Register 0x0000 (Input Register 1)
-    0x0002: 45600,  // Register 0x0002 (Input Register 2)
-    0x0004: 78900,  // Register 0x0004 (Input Register 3)
-    0x0006: 10100,  // Register 0x0006 (Input Register 4)
-    0x0008: 11200,  // Register 0x0008 (Input Register 5)
-    0x000A: 13100,  // Register 0x000A (Input Register 6)
+    0x0000: 12300,      // Low 16 bits
+    0x0002: 20000,      // High 16 bits
   },
 };
 
@@ -45,33 +41,47 @@ setInterval(() => {
 // Create a Modbus TCP Server
 const modbusServer = new ModbusRTU.ServerTCP(
   {
+    // Handling Input Register (32-bit using two 16-bit registers)
     getInputRegister: async (addr, unitID) => {
       console.log(`Read Input Register at address ${addr} from unit ${unitID}`);
-      const value = registers[unitID]?.[addr] || 0;  // Get the value from the registers object
+      
+      let value = 0;
+      if (addr === 0x0000) {  // If address is 0x0000, combine low and high 16-bit values
+        const low = registers[unitID]?.[addr] || 0;
+        const high = registers[unitID]?.[addr + 2] || 0;
+        value = (high << 16) + low;  // Combine high and low to form a 32-bit value
+      } else {
+        value = registers[unitID]?.[addr] || 0;
+      }
 
-      // Log the value being returned to the client (QModMaster)
-      console.log(`Returning value: ${value} for address: ${addr} from unit: ${unitID}`);
+      // Clamp the value to a maximum of 1,000,000 (adjust for range)
+      value = Math.max(0, Math.min(1000000, value));  // Cap the value at 1,000,000 for large numbers
+
+      // Log the value being returned to the terminal
+      console.log(`Returning clamped value: ${value} for address: ${addr} from unit: ${unitID}`);
 
       // Log the request to MongoDB
       const database = client.db("modbus_logs");
       const collection = database.collection("logs");
       const logEntry = {
         unitID,
-        functionCode: 4, // Read Input Register
+        functionCode: 4,  // Read Input Register
         address: addr,
         value,
-        timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Get timestamp in Asia/Phnom_Penh timezone
+        timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Timestamp for the request
       };
       await collection.insertOne(logEntry);
 
-      return value;  // Return the value to the client (QModMaster)
+      return value;  // Return the clamped value back to QModMaster
     },
 
+    // Handling Holding Register (if needed)
     getHoldingRegister: (addr, unitID) => {
       console.log(`Read Holding Register at address ${addr} from unit ${unitID}`);
       return Promise.resolve(0);  // No holding registers in this example, can be extended if needed
     },
 
+    // Handling Register Write (if needed)
     setRegister: (addr, value, unitID) => {
       console.log(`Write Register at address ${addr} with value ${value} from unit ${unitID}`);
       return Promise.resolve();  // Can be extended to handle write operations if needed
