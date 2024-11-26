@@ -11,7 +11,7 @@ const registers = {
   1: { 0x0000: 1234 }, // Ensure the value is correctly set here
 };
 
-// Modbus TCP server setup
+// Create Modbus TCP server
 const modbusServer = new ModbusRTU.ServerTCP(
   {
     getHoldingRegister: async (addr, unitID) => {
@@ -32,9 +32,12 @@ const modbusServer = new ModbusRTU.ServerTCP(
   }
 );
 
-modbusServer.start(() => {
+modbusServer.on("listening", () => {
   console.log("Modbus TCP Server is running on port 1234");
 });
+
+// Start the server using the correct method
+modbusServer.createServer();
 
 // MongoDB logging for errors and client connections
 modbusServer.on("data", (data) => {
