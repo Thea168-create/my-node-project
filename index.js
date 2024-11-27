@@ -21,39 +21,45 @@ async function connectDB() {
 }
 connectDB();
 
-// Pre-configured device credentials (e.g., Device ID)
-const deviceCredentials = {
-  "Q2685SY008TX9765": true,  // Example device ID
-  "device2": true,            // Another example device
-};
-
-// Variable to track whether the device is authenticated
-let deviceAuthenticated = false;
-
 // Register data for 6 analog sensors (AIN0 to AIN5) - 32-bit values (ABCD)
+// Adjusted for two devices with unique addresses starting from 20128
 const registers = {
-  1: {
-    0: 12300,  // AIN0 low register (address 0)
-    2: 45600,  // AIN0 high register (address 2)
-    4: 78900,  // AIN1 low register (address 4)
-    6: 10100,  // AIN1 high register (address 6)
-    8: 11200,  // AIN2 low register (address 8)
-    10: 13100, // AIN2 high register (address 10)
-    12: 11200, // AIN3 low register (address 12)
-    14: 14100, // AIN3 high register (address 14)
-    16: 15200, // AIN4 low register (address 16)
-    18: 16100, // AIN4 high register (address 18)
-    20: 17100, // AIN5 low register (address 20)
-    22: 18100, // AIN5 high register (address 22)
+  1: {  // Device 1 (Slave Address 1)
+    20128: 12300,  // AIN0 low register
+    20129: 45600,  // AIN0 high register
+    20130: 78900,  // AIN1 low register
+    20131: 10100,  // AIN1 high register
+    20132: 11200,  // AIN2 low register
+    20133: 13100,  // AIN2 high register
+    20134: 11200,  // AIN3 low register
+    20135: 14100,  // AIN3 high register
+    20136: 15200,  // AIN4 low register
+    20137: 16100,  // AIN4 high register
+    20138: 17100,  // AIN5 low register
+    20139: 18100,  // AIN5 high register
+  },
+  2: {  // Device 2 (Slave Address 2)
+    20140: 20200,  // AIN0 low register
+    20141: 20300,  // AIN0 high register
+    20142: 20400,  // AIN1 low register
+    20143: 20500,  // AIN1 high register
+    20144: 20600,  // AIN2 low register
+    20145: 20700,  // AIN2 high register
+    20146: 20800,  // AIN3 low register
+    20147: 20900,  // AIN3 high register
+    20148: 21000,  // AIN4 low register
+    20149: 21100,  // AIN4 high register
+    20150: 21200,  // AIN5 low register
+    20151: 21300,  // AIN5 high register
   },
 };
 
 // Create Modbus TCP Server
 const modbusServer = new ModbusRTU.ServerTCP(
   {
-    // Handling the reading of input registers (AIN0 to AIN5)
-    getInputRegister: async (addr, unitID, numRegisters) => {
-      console.log(`Read Input Registers starting at address ${addr} from unit ${unitID}`);
+    // Handling the reading of holding registers (AIN0 to AIN5)
+    getHoldingRegister: async (addr, unitID, numRegisters) => {
+      console.log(`Read Holding Registers starting at address ${addr} from unit ${unitID}`);
 
       let values = [];
 
@@ -61,7 +67,7 @@ const modbusServer = new ModbusRTU.ServerTCP(
       for (let i = 0; i < numRegisters; i++) {
         const lowAddr = addr + (i * 2);      // Address of the low register (16-bit)
         const highAddr = lowAddr + 1;        // Address of the high register (16-bit)
-        
+
         // Reading the low and high registers (16-bit) for each AIN (32-bit)
         const lowValue = registers[unitID]?.[lowAddr] || 0;
         const highValue = registers[unitID]?.[highAddr] || 0;
@@ -70,7 +76,7 @@ const modbusServer = new ModbusRTU.ServerTCP(
         let value = (highValue << 16) | lowValue; // Combine high and low bytes into 32-bit
 
         // Optional: clamp the value to a specific range
-        value = Math.max(0, Math.min(1000000, value));  
+        value = Math.max(0, Math.min(1000000, value));
 
         values.push(value);  // Add the 32-bit value to the array of results
       }
@@ -82,7 +88,7 @@ const modbusServer = new ModbusRTU.ServerTCP(
       const collection = database.collection("logs");
       const logEntry = {
         unitID,
-        functionCode: 4,  // Read Input Register
+        functionCode: 3,  // Read Holding Register
         address: addr,
         values,
         timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Timestamp of request
@@ -90,28 +96,6 @@ const modbusServer = new ModbusRTU.ServerTCP(
       await collection.insertOne(logEntry); // Insert the log into MongoDB
 
       return values;  // Return an array of 32-bit values back to the Modbus TCP client
-    },
-
-    // Listen for login messages and authenticate
-    read: (unitID, data) => {
-      // Convert the incoming data to a string (assuming it's ASCII)
-      const loginMessage = data.toString();  // This should be an ASCII string
-
-      console.log("Received Login Message:", loginMessage); // For debugging
-
-      // Example: Login message format: "LOGIN:Q2685SY008TX9765"
-      if (loginMessage.startsWith("LOGIN")) {
-        const deviceID = loginMessage.split(":")[1]; // Extract device ID from the message
-        
-        // Validate device ID
-        if (deviceCredentials[deviceID]) {
-          console.log(`Device ${deviceID} authenticated successfully`);
-          deviceAuthenticated = true;  // Mark the device as authenticated
-        } else {
-          console.log(`Authentication failed for device ${deviceID}`);
-          deviceAuthenticated = false;
-        }
-      }
     }
   },
   {
