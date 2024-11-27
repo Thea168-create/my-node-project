@@ -21,6 +21,15 @@ async function connectDB() {
 }
 connectDB();
 
+// Pre-configured device credentials (e.g., Device ID)
+const deviceCredentials = {
+  "Q2685SY008TX9765": true,  // Example device ID
+  "device2": true,            // Another example device
+};
+
+// Variable to track whether the device is authenticated
+let deviceAuthenticated = false;
+
 // Register data for 6 analog sensors (AIN0 to AIN5) - 32-bit values (ABCD)
 const registers = {
   1: {
@@ -83,11 +92,27 @@ const modbusServer = new ModbusRTU.ServerTCP(
       return values;  // Return an array of 32-bit values back to the Modbus TCP client
     },
 
-    // Handling any write requests (though we’re only focusing on reading)
-    setRegister: (addr, value, unitID) => {
-      console.log(`Write Register at address ${addr} with value ${value} from unit ${unitID}`);
-      return Promise.resolve(); // We’re not handling writes in this example
-    },
+    // Listen for login messages and authenticate
+    read: (unitID, data) => {
+      // Convert the incoming data to a string (assuming it's ASCII)
+      const loginMessage = data.toString();  // This should be an ASCII string
+
+      console.log("Received Login Message:", loginMessage); // For debugging
+
+      // Example: Login message format: "LOGIN:Q2685SY008TX9765"
+      if (loginMessage.startsWith("LOGIN")) {
+        const deviceID = loginMessage.split(":")[1]; // Extract device ID from the message
+        
+        // Validate device ID
+        if (deviceCredentials[deviceID]) {
+          console.log(`Device ${deviceID} authenticated successfully`);
+          deviceAuthenticated = true;  // Mark the device as authenticated
+        } else {
+          console.log(`Authentication failed for device ${deviceID}`);
+          deviceAuthenticated = false;
+        }
+      }
+    }
   },
   {
     host: "0.0.0.0",  // Listen on all available interfaces
