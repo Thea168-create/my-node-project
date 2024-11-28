@@ -2,13 +2,14 @@ const ModbusRTU = require("modbus-serial");
 const { MongoClient } = require("mongodb");
 const moment = require("moment-timezone");
 
+// MongoDB connection URI
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
 const client = new MongoClient(uri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
 
-// MongoDB connection setup
+// Connect to MongoDB
 async function connectDB() {
   try {
     await client.connect();
@@ -20,105 +21,93 @@ async function connectDB() {
 }
 connectDB();
 
-// Expected login message and response (e.g., device authentication)
-const validLoginMessage = "LOGIN:S275_DEVICE_ID";  // Example login message
-const heartbeatTimeout = 70000;  // 70 seconds timeout for heartbeat
-
-// Modbus register data for 6 analog sensors (16-bit values)
+// Register data for 6 analog sensors (AIN0 to AIN5) - 32-bit values (ABCD)
+// Adjusted for two devices with unique addresses starting from 20128
 const registers = {
-  1: {
-    20000: 12345,  // Sensor 1 (16-bit)
-    20001: 67890,  // Sensor 2 (16-bit)
-    20002: 13579,  // Sensor 3 (16-bit)
-    20003: 24680,  // Sensor 4 (16-bit)
-    20004: 11223,  // Sensor 5 (16-bit)
-    20005: 45678,  // Sensor 6 (16-bit)
+  1: {  // Device 1 (Slave Address 1)
+    20128: 12300,  // AIN0 low register
+    20129: 45600,  // AIN0 high register
+    20130: 78900,  // AIN1 low register
+    20131: 10100,  // AIN1 high register
+    20132: 11200,  // AIN2 low register
+    20133: 13100,  // AIN2 high register
+    20134: 11200,  // AIN3 low register
+    20135: 14100,  // AIN3 high register
+    20136: 15200,  // AIN4 low register
+    20137: 16100,  // AIN4 high register
+    20138: 17100,  // AIN5 low register
+    20139: 18100,  // AIN5 high register
+  },
+  2: {  // Device 2 (Slave Address 2)
+    20140: 20200,  // AIN0 low register
+    20141: 20300,  // AIN0 high register
+    20142: 20400,  // AIN1 low register
+    20143: 20500,  // AIN1 high register
+    20144: 20600,  // AIN2 low register
+    20145: 20700,  // AIN2 high register
+    20146: 20800,  // AIN3 low register
+    20147: 20900,  // AIN3 high register
+    20148: 21000,  // AIN4 low register
+    20149: 21100,  // AIN4 high register
+    20150: 21200,  // AIN5 low register
+    20151: 21300,  // AIN5 high register
   },
 };
 
-// Flag to check authentication
-let isAuthenticated = false;
-let heartbeatTimeoutHandle;
+// Create Modbus TCP Server
+const modbusServer = new ModbusRTU.ServerTCP(
+  {
+    // Handling the reading of holding registers (AIN0 to AIN5)
+    getHoldingRegister: async (addr, unitID, numRegisters) => {
+      console.log(`Read Holding Registers starting at address ${addr} from unit ${unitID}`);
 
-// Create Modbus TCP Server using modbus-serial
-const server = new ModbusRTU.ServerTCP({
-  unitId: 1,  // Modbus Slave ID
-  host: '0.0.0.0',  // Listen on all network interfaces
-  port: 1234  // Port for Modbus TCP server
-});
+      let values = [];
 
-// Modbus function to handle the read holding registers (Function Code 3)
-server.on('readHoldingRegisters', function(request, response) {
-  if (!isAuthenticated) {
-    console.log('Device not authenticated yet.');
-    response.sendException(0x02); // Send exception for unauthorized request
-    return;
-  }
+      // Loop through the number of registers to read and return their values
+      for (let i = 0; i < numRegisters; i++) {
+        const lowAddr = addr + (i * 2);      // Address of the low register (16-bit)
+        const highAddr = lowAddr + 1;        // Address of the high register (16-bit)
 
-  // Process register reading based on the request
-  const startAddress = request.address;
-  const count = request.count;
+        // Reading the low and high registers (16-bit) for each AIN (32-bit)
+        const lowValue = registers[unitID]?.[lowAddr] || 0;
+        const highValue = registers[unitID]?.[highAddr] || 0;
 
-  console.log(`Reading Holding Registers starting from address ${startAddress}`);
+        // Combine low and high registers into a 32-bit value (ABCD format)
+        let value = (highValue << 16) | lowValue; // Combine high and low bytes into 32-bit
 
-  // Prepare the data to send back based on the starting address and count
-  const data = [];
-  for (let i = 0; i < count; i++) {
-    const registerValue = registers[1]?.[startAddress + i] || 0;
-    data.push(registerValue);
-  }
+        // Optional: clamp the value to a specific range
+        value = Math.max(0, Math.min(1000000, value));
 
-  response.send(data);
-});
-
-// Handle device login and heartbeat communication with the device
-server.on('connection', (socket) => {
-  let isAuthenticated = false;
-  let heartbeatTimeoutHandle;
-
-  socket.on('data', function(data) {
-    const message = data.toString().trim();
-    console.log(`Received data from client: ${message}`);
-
-    // Handle login message (device authentication)
-    if (!isAuthenticated && message.startsWith("LOGIN")) {
-      if (message === validLoginMessage) {
-        isAuthenticated = true;
-        console.log('Device authenticated');
-        socket.write("LOGIN OK\n");  // Send login ACK
-      } else {
-        console.log('Unauthorized device attempted to connect');
-        socket.write("LOGIN FAILED\n");
-        socket.end(); // Disconnect unauthorized device
+        values.push(value);  // Add the 32-bit value to the array of results
       }
+
+      console.log(`Returning values: ${values} for starting address: ${addr}`);
+
+      // Log the request and values to MongoDB
+      const database = client.db("modbus_logs");
+      const collection = database.collection("logs");
+      const logEntry = {
+        unitID,
+        functionCode: 3,  // Read Holding Register
+        address: addr,
+        values,
+        timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Timestamp of request
+      };
+      await collection.insertOne(logEntry); // Insert the log into MongoDB
+
+      return values;  // Return an array of 32-bit values back to the Modbus TCP client
     }
-    
-    // Handle heartbeat message (device sends "A", server responds with "R")
-    if (isAuthenticated && message === "A") {
-      console.log('Received Heartbeat Message: A');
-      socket.write("R");  // Send Heartbeat ACK
-      console.log('Sent Heartbeat ACK Message: R');
-
-      // Reset heartbeat timeout on every valid heartbeat
-      clearTimeout(heartbeatTimeoutHandle);
-      heartbeatTimeoutHandle = setTimeout(() => {
-        console.log("No heartbeat received, disconnecting...");
-        socket.end(); // Disconnect if no heartbeat is received within the timeout period
-      }, heartbeatTimeout);
-    }
-  });
-
-  // Handle client disconnect
-  socket.on('end', () => {
-    console.log('Client disconnected');
-    clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on disconnection
-  });
-
-  // Handle errors
-  socket.on('error', (err) => {
-    console.error(`Error with client: ${err.message}`);
-    clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on error
-  });
-});
+  },
+  {
+    host: "0.0.0.0",  // Listen on all available interfaces
+    port: 1234,       // Modbus TCP port
+    debug: true,      // Enable debugging (optional)
+  }
+);
 
 console.log("Modbus TCP Server is running on port 1234");
+
+// MongoDB logging for errors
+modbusServer.on("error", (error) => {
+  console.error("Modbus Server Error:", error);
+});
