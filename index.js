@@ -64,6 +64,9 @@ const server = net.createServer((socket) => {
         socket.end();  // Close connection if authentication fails
       }
     } else {
+      // Log the incoming Modbus request in detail
+      console.log('After login, checking for Modbus requests...');
+
       // Handle Modbus Read Holding Registers request (function code 3)
       if (data[0] === 0x01 && data[1] === 0x03) {  // Check for Modbus Read Holding Registers (function code 03)
         const startAddr = (data[2] << 8) | data[3];  // Starting address (big-endian)
