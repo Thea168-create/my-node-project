@@ -46,7 +46,7 @@ const server = net.createServer((socket) => {
 
   // Handle incoming data (Login first, then Modbus requests)
   socket.on('data', (data) => {
-    console.log(`Received data from client: ${data.toString()}`);
+    console.log(`Received data from client: ${data.toString('hex')}`);
 
     // Check for login message in ASCII format (e.g., "LOGIN:S275_DEVICE_ID")
     if (!isAuthenticated) {
@@ -65,7 +65,7 @@ const server = net.createServer((socket) => {
       }
     } else {
       // Handle Modbus Read Holding Registers request (function code 3)
-      if (data[0] === 0x03) {  // Function code 03: Read Holding Registers
+      if (data[0] === 0x01 && data[1] === 0x03) {  // Check for Modbus Read Holding Registers (function code 03)
         const startAddr = (data[2] << 8) | data[3];  // Starting address (big-endian)
         const numRegisters = (data[4] << 8) | data[5]; // Number of registers to read (big-endian)
 
@@ -107,7 +107,7 @@ const server = net.createServer((socket) => {
           console.error("Error logging to MongoDB:", error);
         });
       } else {
-        console.log('Unsupported Modbus function code');
+        console.log('Unsupported Modbus function code or invalid request format');
       }
     }
   });
