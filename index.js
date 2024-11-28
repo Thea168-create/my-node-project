@@ -1,14 +1,12 @@
-const net = require('net');  // Native Node.js module for TCP
-const { MongoClient } = require("mongodb"); // MongoDB client to log requests
+const ModbusRTU = require("modbus-serial");
+const { MongoClient } = require("mongodb");
+const net = require('net');
 
 // MongoDB connection URI
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
-const client = new MongoClient(uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
-// MongoDB connection setup
+// Connect to MongoDB
 async function connectDB() {
   try {
     await client.connect();
@@ -20,103 +18,99 @@ async function connectDB() {
 }
 connectDB();
 
-// Expected ASCII login message format
-const validLoginMessageAscii = "LOGIN:S275_DEVICE_ID";  // ASCII login message format
+// Expected login message and response (e.g., device authentication)
+const validLoginMessage = "LOGIN:S275_DEVICE_ID";
+const heartbeatTimeout = 70000;  // 70 seconds timeout for heartbeat
 
-// Simulated registers (for testing)
+// Modbus register data for 6 analog sensors (16-bit values)
 const registers = {
   1: {
-    20000: 12345,  // Register 20000 value
-    20001: 67890,  // Register 20001 value
-    20002: 13579,  // Register 20002 value
-    20003: 24680,  // Register 20003 value
+    20000: 12345,  // Sensor 1 (16-bit)
+    20001: 67890,  // Sensor 2 (16-bit)
+    20002: 13579,  // Sensor 3 (16-bit)
+    20003: 24680,  // Sensor 4 (16-bit)
+    20004: 11223,  // Sensor 5 (16-bit)
+    20005: 45678,  // Sensor 6 (16-bit)
   },
 };
 
-// Heartbeat timeout (6 seconds)
-const heartbeatTimeout = 70000;  // 70 seconds
+// Flag to check authentication
+let isAuthenticated = false;
+let heartbeatTimeoutHandle;
 
-// Create TCP Server using `net` module
-const server = net.createServer((socket) => {
-  const clientIP = socket.remoteAddress;
-  const clientPort = socket.remotePort;
+// Create Modbus TCP server
+const server = new ModbusRTU.ServerTCP(502, { 
+  unitId: 1  // Modbus Slave ID
+});
 
-  // Log the client connection
+// Modbus function to handle the read holding registers (Function Code 3)
+server.on('readHoldingRegisters', function(request, response) {
+  if (!isAuthenticated) {
+    console.log('Device not authenticated yet.');
+    response.sendException(0x02); // Send exception for unauthorized request
+    return;
+  }
+
+  // Process register reading based on the request
+  const startAddress = request.address;
+  const count = request.count;
+
+  console.log(`Reading Holding Registers starting from address ${startAddress}`);
+
+  // Prepare the data to send back based on the starting address and count
+  const data = [];
+  for (let i = 0; i < count; i++) {
+    const registerValue = registers[1]?.[startAddress + i] || 0;
+    data.push(registerValue);
+  }
+
+  response.send(data);
+});
+
+// Create TCP server for handling login and heartbeat messages
+const tcpServer = net.createServer((socket) => {
+  let clientIP = socket.remoteAddress;
+  let clientPort = socket.remotePort;
+
   console.log(`New client connected: ${clientIP}:${clientPort}`);
 
-  // Flag to track if login was successful
-  let isAuthenticated = false;
-  let heartbeatTimeoutHandle;
-
-  // Handle incoming data (Login first, then Modbus requests)
+  // Handle incoming data
   socket.on('data', (data) => {
-    console.log(`Received data from client: ${data.toString('hex')}`);
+    const message = data.toString().trim();
+    console.log(`Received data from client: ${message}`);
 
-    // Check for login message in ASCII format (e.g., "LOGIN:S275_DEVICE_ID")
-    if (!isAuthenticated) {
-      const loginMessage = data.toString().trim();
-      if (loginMessage === validLoginMessageAscii) {
+    // Handle login message (device authentication)
+    if (!isAuthenticated && message.startsWith("LOGIN")) {
+      if (message === validLoginMessage) {
         isAuthenticated = true;
         console.log('Device authenticated');
-        // Send Login ACK Message (respond with the configured Login ACK message)
-        const loginAckMessage = "LOGIN OK\n"; // Login acknowledgment message in ASCII
-        socket.write(loginAckMessage);  // Send acknowledgment
-        console.log('Sent Login ACK Message in ASCII');
+        socket.write("LOGIN OK\n"); // Send login ACK
       } else {
         console.log('Unauthorized device attempted to connect');
         socket.write("LOGIN FAILED\n");
-        socket.end();  // Close connection if authentication fails
+        socket.end(); // Disconnect unauthorized device
       }
-    } else {
-      // Handle Heartbeat Message (after login)
-      if (data.toString().startsWith("A")) {  // Check for Heartbeat Message "A"
-        console.log('Received Heartbeat Message: A');
-        // Respond with Heartbeat ACK Message "R"
-        socket.write("R");  // Heartbeat ACK
-        console.log('Sent Heartbeat ACK Message: R');
-        
-        // Reset heartbeat timeout
-        clearTimeout(heartbeatTimeoutHandle);
-        heartbeatTimeoutHandle = setTimeout(() => {
-          console.log("No heartbeat received, disconnecting...");
-          socket.end();  // Disconnect if no heartbeat within the timeout period
-        }, heartbeatTimeout);
-      }
+    }
+    
+    // Handle heartbeat message (device sends "A", server responds with "R")
+    if (isAuthenticated && message === "A") {
+      console.log('Received Heartbeat Message: A');
+      socket.write("R");  // Send Heartbeat ACK
+      console.log('Sent Heartbeat ACK Message: R');
 
-      // Handle Modbus Read Holding Registers request (function code 3)
-      if (data[7] === 0x03) {  // Check for Modbus Read Holding Registers (function code 03)
-        const startAddr = (data[8] << 8) | data[9];  // Starting address (big-endian)
-        const numRegisters = (data[10] << 8) | data[11]; // Number of registers to read (big-endian)
-
-        console.log(`Received Modbus request: Read Holding Registers starting at address ${startAddr}`);
-
-        // Prepare Modbus response
-        let response = Buffer.alloc(5 + numRegisters * 2);  // Function code + byte count + data
-        response[0] = 0x01;  // Slave address (same as the device)
-        response[1] = 0x03;  // Function code: 3 (Read Holding Registers)
-        response[2] = numRegisters * 2;  // Byte count (each register is 2 bytes)
-        
-        // Add register values (using the start address and number of registers requested)
-        let offset = 3;
-        for (let i = 0; i < numRegisters; i++) {
-          const regAddr = startAddr + i;
-
-          const value = registers[1]?.[regAddr] || 0;  // Read from the register data
-
-          response[offset++] = (value >> 8) & 0xFF;  // High byte
-          response[offset++] = value & 0xFF;         // Low byte
-        }
-
-        console.log(`Returning Modbus values: ${response.toString('hex')} for starting address: ${startAddr}`);
-        socket.write(response);  // Send the Modbus response
-      }
+      // Reset heartbeat timeout on every valid heartbeat
+      clearTimeout(heartbeatTimeoutHandle);
+      heartbeatTimeoutHandle = setTimeout(() => {
+        console.log("No heartbeat received, disconnecting...");
+        socket.end(); // Disconnect if no heartbeat is received within the timeout period
+      }, heartbeatTimeout);
     }
   });
 
   // Handle client disconnect
   socket.on('end', () => {
     console.log(`Client disconnected: ${clientIP}:${clientPort}`);
-    clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout if disconnected
+    clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on disconnection
   });
 
   // Handle errors
@@ -126,8 +120,12 @@ const server = net.createServer((socket) => {
   });
 });
 
-// Listen on port 1234
-const PORT = 1234;
-server.listen(PORT, () => {
-  console.log(`TCP Server listening on port ${PORT}`);
+// Start TCP server on port 1234 for login and heartbeat handling
+tcpServer.listen(1234, () => {
+  console.log("TCP Server for login and heartbeat listening on port 1234");
+});
+
+// Start Modbus TCP server to handle actual Modbus communication on port 502
+server.listen(() => {
+  console.log("Modbus TCP server listening on port 502");
 });
