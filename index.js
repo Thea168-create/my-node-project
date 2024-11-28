@@ -1,8 +1,6 @@
 const ModbusRTU = require("modbus-serial");
 const { MongoClient } = require("mongodb");
-const net = require('net');
 
-// MongoDB connection URI
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
@@ -38,9 +36,11 @@ const registers = {
 let isAuthenticated = false;
 let heartbeatTimeoutHandle;
 
-// Create Modbus TCP server
-const server = new ModbusRTU.ServerTCP(502, { 
-  unitId: 1  // Modbus Slave ID
+// Create Modbus TCP server using modbus-serial
+const server = new ModbusRTU.ServerTCP({
+  unitId: 1,  // Modbus Slave ID
+  host: '0.0.0.0',  // Listen on all network interfaces
+  port: 502  // Port for Modbus TCP server
 });
 
 // Modbus function to handle the read holding registers (Function Code 3)
