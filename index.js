@@ -20,36 +20,38 @@ async function connectDB() {
 }
 connectDB();
 
-// Simulate Device ID for login
-const validDeviceID = "010303"; // Replace with the actual expected device ID
+// Expected ASCII login message format
+const validLoginMessageAscii = "LOGIN:S275_DEVICE_ID";  // ASCII login message format
 
 // Create TCP Server using `net` module
 const server = net.createServer((socket) => {
   const clientIP = socket.remoteAddress;
   const clientPort = socket.remotePort;
-  
+
   // Log the client connection
   console.log(`New client connected: ${clientIP}:${clientPort}`);
-  
+
   // Flag to track if login was successful
   let isAuthenticated = false;
-  
+
   // Handle incoming data (Login first, then Modbus requests)
   socket.on('data', (data) => {
-    // Check for login message (assuming it's ASCII formatted)
-    const loginMessage = data.toString().trim();
+    console.log(`Received data from client: ${data.toString()}`);
+
+    // Check for login message in ASCII format (e.g., "LOGIN:S275_DEVICE_ID")
     if (!isAuthenticated) {
-      if (loginMessage.startsWith("LOGIN")) {
-        const deviceID = loginMessage.split(":")[1]; // Extract Device ID from the login message
-        if (deviceID === validDeviceID) {
-          isAuthenticated = true;
-          console.log(`Device authenticated: ${deviceID}`);
-          socket.write("LOGIN OK\n");  // Send acknowledgment
-        } else {
-          socket.write("LOGIN FAILED\n");  // Reject unauthorized device
-          console.log(`Unauthorized device attempted to connect: ${deviceID}`);
-          socket.end();  // Close connection if authentication fails
-        }
+      const loginMessage = data.toString().trim();
+      if (loginMessage === validLoginMessageAscii) {
+        isAuthenticated = true;
+        console.log('Device authenticated');
+        // Send Login ACK Message (respond with the configured Login ACK message)
+        const loginAckMessage = "LOGIN OK\n"; // Login acknowledgment message in ASCII
+        socket.write(loginAckMessage);  // Send acknowledgment
+        console.log('Sent Login ACK Message in ASCII');
+      } else {
+        console.log('Unauthorized device attempted to connect');
+        socket.write("LOGIN FAILED\n");
+        socket.end();  // Close connection if authentication fails
       }
     } else {
       // Process Modbus request after successful login
