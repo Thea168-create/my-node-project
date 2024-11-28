@@ -42,7 +42,7 @@ const server = new ModbusRTU.ServerTCP({
   inputs: {},
 }, {
   host: "0.0.0.0",
-  port: process.env.MODBUS_PORT || 1234,
+  port: process.env.MODBUS_PORT || 1235,
 }, () => {
   logger.info(`Modbus TCP Server is running on port ${process.env.MODBUS_PORT || 1234}`);
 });
@@ -172,8 +172,8 @@ const tcpServer = net.createServer((socket) => {
 });
 
 // Start TCP Server for Heartbeat and Login Messages
-tcpServer.listen(process.env.TCP_PORT || 1234, () => {
-  logger.info(`TCP Server for heartbeat and login messages is running on port ${process.env.TCP_PORT || 1234}`);
+tcpServer.listen(process.env.MODBUS_PORT || 1234, () => {
+  logger.info(`TCP Server for heartbeat and login messages is running on port ${process.env.MODBUS_PORT || 1234}`);
 });
 
 // Handle Errors
