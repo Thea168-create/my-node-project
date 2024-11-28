@@ -4,10 +4,7 @@ const moment = require("moment-timezone");
 
 // MongoDB connection URI
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
-const client = new MongoClient(uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+const client = new MongoClient(uri); // Removed deprecated options
 
 // Connect to MongoDB
 async function connectDB() {
@@ -16,7 +13,7 @@ async function connectDB() {
     console.log("Connected to MongoDB");
   } catch (err) {
     console.error("MongoDB connection error:", err);
-    process.exit(1); // Exit if the connection fails
+    setTimeout(connectDB, 5000); // Retry connection after 5 seconds
   }
 }
 connectDB();
@@ -63,39 +60,49 @@ const modbusServer = new ModbusRTU.ServerTCP(
 
       let values = [];
 
-      // Loop through the number of registers to read and return their values
-      for (let i = 0; i < numRegisters; i++) {
-        const lowAddr = addr + (i * 2);      // Address of the low register (16-bit)
-        const highAddr = lowAddr + 1;        // Address of the high register (16-bit)
+      try {
+        // Loop through the number of registers to read and return their values
+        for (let i = 0; i < numRegisters; i++) {
+          const lowAddr = addr + (i * 2);      // Address of the low register (16-bit)
+          const highAddr = lowAddr + 1;        // Address of the high register (16-bit)
 
-        // Reading the low and high registers (16-bit) for each AIN (32-bit)
-        const lowValue = registers[unitID]?.[lowAddr] || 0;
-        const highValue = registers[unitID]?.[highAddr] || 0;
+          // Reading the low and high registers (16-bit) for each AIN (32-bit)
+          const lowValue = registers[unitID]?.[lowAddr] || 0;
+          const highValue = registers[unitID]?.[highAddr] || 0;
 
-        // Combine low and high registers into a 32-bit value (ABCD format)
-        let value = (highValue << 16) | lowValue; // Combine high and low bytes into 32-bit
+          // Combine low and high registers into a 32-bit value (ABCD format)
+          let value = (highValue << 16) | lowValue; // Combine high and low bytes into 32-bit
 
-        // Optional: clamp the value to a specific range
-        value = Math.max(0, Math.min(1000000, value));
+          // Optional: clamp the value to a specific range
+          value = Math.max(0, Math.min(1000000, value));
 
-        values.push(value);  // Add the 32-bit value to the array of results
+          values.push(value);  // Add the 32-bit value to the array of results
+        }
+
+        console.log(`Returning values: ${values} for starting address: ${addr}`);
+
+        // Log the request and values to MongoDB
+        const database = client.db("modbus_logs");
+        const collection = database.collection("logs");
+        const logEntry = {
+          unitID,
+          functionCode: 3,  // Read Holding Register
+          address: addr,
+          values,
+          timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Timestamp of request
+        };
+
+        try {
+          await collection.insertOne(logEntry); // Insert the log into MongoDB
+        } catch (logError) {
+          console.error("Failed to log data to MongoDB:", logError);
+        }
+
+        return values;  // Return an array of 32-bit values back to the Modbus TCP client
+      } catch (err) {
+        console.error("Error handling Modbus request:", err);
+        return [];  // Return an empty array in case of error
       }
-
-      console.log(`Returning values: ${values} for starting address: ${addr}`);
-
-      // Log the request and values to MongoDB
-      const database = client.db("modbus_logs");
-      const collection = database.collection("logs");
-      const logEntry = {
-        unitID,
-        functionCode: 3,  // Read Holding Register
-        address: addr,
-        values,
-        timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Timestamp of request
-      };
-      await collection.insertOne(logEntry); // Insert the log into MongoDB
-
-      return values;  // Return an array of 32-bit values back to the Modbus TCP client
     }
   },
   {
