@@ -34,7 +34,7 @@ const registers = {
 };
 
 // Heartbeat timeout (6 seconds)
-const heartbeatTimeout = 6000;  // 6 seconds
+const heartbeatTimeout = 70000;  // 70 seconds
 
 // Create TCP Server using `net` module
 const server = net.createServer((socket) => {
