@@ -3,10 +3,7 @@ const { MongoClient } = require("mongodb");
 const moment = require("moment-timezone");
 
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
-const client = new MongoClient(uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
 // MongoDB connection setup
 async function connectDB() {
@@ -40,77 +37,43 @@ const registers = {
 let isAuthenticated = false;
 let heartbeatTimeoutHandle;
 
-// Create Modbus TCP Server
-const modbusServer = new ModbusRTU.ServerTCP(
-  {
-    // Handling the reading of holding registers (AIN0 to AIN5)
-    getHoldingRegister: async (addr, unitID, numRegisters) => {
-      console.log(`Read Holding Registers starting at address ${addr} from unit ${unitID}`);
-
-      let values = [];
-
-      // Loop through the number of registers to read and return their values
-      for (let i = 0; i < numRegisters; i++) {
-        const lowAddr = addr + (i * 2);      // Address of the low register (16-bit)
-        const highAddr = lowAddr + 1;        // Address of the high register (16-bit)
-
-        // Reading the low and high registers (16-bit) for each AIN (32-bit)
-        const lowValue = registers[unitID]?.[lowAddr] || 0;
-        const highValue = registers[unitID]?.[highAddr] || 0;
-
-        // Combine low and high registers into a 32-bit value (ABCD format)
-        let value = (highValue << 16) | lowValue; // Combine high and low bytes into 32-bit
-
-        // Optional: clamp the value to a specific range
-        value = Math.max(0, Math.min(1000000, value));
-
-        values.push(value);  // Add the 32-bit value to the array of results
-      }
-
-      console.log(`Returning values: ${values} for starting address: ${addr}`);
-
-      // Log the request and values to MongoDB
-      const database = client.db("modbus_logs");
-      const collection = database.collection("logs");
-      const logEntry = {
-        unitID,
-        functionCode: 3,  // Read Holding Register
-        address: addr,
-        values,
-        timestamp: moment().tz("Asia/Phnom_Penh").format(),  // Timestamp of request
-      };
-      await collection.insertOne(logEntry); // Insert the log into MongoDB
-
-      return values;  // Return the values to the Modbus client
-    },
-
-    // New event listener for when a client connects to the server
-    onConnection: (socket) => {
-      const clientIP = socket.remoteAddress;  // Get the client's IP address
-      const clientPort = socket.remotePort;  // Get the client's port
-      console.log(`New client connected: ${clientIP}:${clientPort}`);
-    }
-  },
-  {
-    host: "0.0.0.0",  // Listen on all available interfaces
-    port: 1234,       // Modbus TCP port
-    debug: true,      // Enable debugging (optional)
-  }
-);
-
-console.log("Modbus TCP Server is running on port 1234");
-
-// MongoDB logging for errors
-modbusServer.on("error", (error) => {
-  console.error("Modbus Server Error:", error);
+// Create Modbus TCP Server using modbus-serial
+const server = new ModbusRTU.ServerTCP({
+  unitId: 1,  // Modbus Slave ID
+  host: '0.0.0.0',  // Listen on all network interfaces
+  port: 502  // Port for Modbus TCP server
 });
 
-// Handle login and heartbeat
-modbusServer.on("connection", (socket) => {
+// Modbus function to handle the read holding registers (Function Code 3)
+server.on('readHoldingRegisters', function(request, response) {
+  if (!isAuthenticated) {
+    console.log('Device not authenticated yet.');
+    response.sendException(0x02); // Send exception for unauthorized request
+    return;
+  }
+
+  // Process register reading based on the request
+  const startAddress = request.address;
+  const count = request.count;
+
+  console.log(`Reading Holding Registers starting from address ${startAddress}`);
+
+  // Prepare the data to send back based on the starting address and count
+  const data = [];
+  for (let i = 0; i < count; i++) {
+    const registerValue = registers[1]?.[startAddress + i] || 0;
+    data.push(registerValue);
+  }
+
+  response.send(data);
+});
+
+// Handle device login and heartbeat communication with the device
+server.on('connection', (socket) => {
   let isAuthenticated = false;
   let heartbeatTimeoutHandle;
 
-  socket.on('data', (data) => {
+  socket.on('data', function(data) {
     const message = data.toString().trim();
     console.log(`Received data from client: ${message}`);
 
@@ -153,4 +116,9 @@ modbusServer.on("connection", (socket) => {
     console.error(`Error with client: ${err.message}`);
     clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on error
   });
+});
+
+// Start the Modbus TCP server using the 'serve()' method instead of 'listen'
+server.serve(() => {
+  console.log("Modbus TCP server listening on port 502");
 });
