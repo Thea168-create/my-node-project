@@ -21,11 +21,15 @@ async function connectDB() {
 }
 connectDB();
 
-// Simple register data for testing (AIN0)
+// 16-bit register data starting from 20000
 const registers = {
   1: {  // Device 1 (Slave Address 1)
-    20128: 12300,  // AIN0 low register
-    20129: 45600,  // AIN0 high register
+    20000: 12300,  // Register 20000 value (16-bit)
+    20001: 45600,  // Register 20001 value (16-bit)
+    20002: 78900,  // Register 20002 value (16-bit)
+    20003: 10100,  // Register 20003 value (16-bit)
+    20004: 11200,  // Register 20004 value (16-bit)
+    20005: 13100,  // Register 20005 value (16-bit)
   },
 };
 
@@ -57,16 +61,12 @@ const server = net.createServer((socket) => {
       // Add data values (based on the address requested)
       let offset = 3;
       for (let i = 0; i < numRegisters; i++) {
-        const lowAddr = startAddr + (i * 2);
-        const highAddr = lowAddr + 1;
+        const regAddr = startAddr + i; // Register addresses start from 20000
 
-        const lowValue = registers[unitID]?.[lowAddr] || 0;
-        const highValue = registers[unitID]?.[highAddr] || 0;
+        const value = registers[unitID]?.[regAddr] || 0;
 
-        response[offset++] = (lowValue >> 8) & 0xFF;
-        response[offset++] = lowValue & 0xFF;
-        response[offset++] = (highValue >> 8) & 0xFF;
-        response[offset++] = highValue & 0xFF;
+        response[offset++] = (value >> 8) & 0xFF;  // High byte
+        response[offset++] = value & 0xFF;         // Low byte
       }
       
       console.log(`Returning values: ${response.toString('hex')} for starting address: ${startAddr}`);
