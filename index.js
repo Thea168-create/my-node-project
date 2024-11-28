@@ -69,7 +69,7 @@ const server = net.createServer((socket) => {
         const startAddr = (data[2] << 8) | data[3];  // Starting address (big-endian)
         const numRegisters = (data[4] << 8) | data[5]; // Number of registers to read (big-endian)
 
-        console.log(`Read Holding Registers starting at address ${startAddr}`);
+        console.log(`Received Modbus request: Read Holding Registers starting at address ${startAddr}`);
 
         // Prepare Modbus response
         let response = Buffer.alloc(5 + numRegisters * 2);  // Function code + byte count + data
@@ -88,7 +88,7 @@ const server = net.createServer((socket) => {
           response[offset++] = value & 0xFF;         // Low byte
         }
 
-        console.log(`Returning values: ${response.toString('hex')} for starting address: ${startAddr}`);
+        console.log(`Returning Modbus values: ${response.toString('hex')} for starting address: ${startAddr}`);
         socket.write(response);  // Send the Modbus response
 
         // Optionally log the request/response to MongoDB
