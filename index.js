@@ -1,5 +1,6 @@
 const net = require('net');  // Native Node.js module for TCP
-const { MongoClient } = require("mongodb");
+const ModbusRTU = require("modbus-serial"); // Modbus library for handling Modbus protocol
+const { MongoClient } = require("mongodb"); // MongoDB client to log requests
 
 // MongoDB connection URI
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
@@ -20,7 +21,7 @@ async function connectDB() {
 }
 connectDB();
 
-// Register data for testing (AIN0)
+// Simple register data for testing (AIN0)
 const registers = {
   1: {  // Device 1 (Slave Address 1)
     20128: 12300,  // AIN0 low register
@@ -38,39 +39,54 @@ const server = net.createServer((socket) => {
   
   // Handle incoming data (Modbus request)
   socket.on('data', (data) => {
-    console.log(`Received data from client: ${data}`);
-
+    console.log(`Received data from client: ${data.toString('hex')}`);
+    
     // Simulate processing Modbus request
     if (data[0] === 0x03) {  // Function code 3: Read Holding Registers
       const unitID = data[0]; // Slave address
       const startAddr = (data[2] << 8) | data[3]; // Starting address (big-endian)
       const numRegisters = (data[4] << 8) | data[5]; // Number of registers to read (big-endian)
       
-      // Prepare the response (Read Holding Registers)
+      console.log(`Read Holding Registers starting at address ${startAddr} from unit ${unitID}`);
+
       let response = Buffer.alloc(5 + numRegisters * 2);  // Function code + byte count + data
       response[0] = unitID;  // Slave address
       response[1] = 0x03;    // Function code: 3 (Read Holding Registers)
       response[2] = numRegisters * 2;  // Byte count (each register is 2 bytes)
       
-      // Add data values
+      // Add data values (based on the address requested)
       let offset = 3;
       for (let i = 0; i < numRegisters; i++) {
         const lowAddr = startAddr + (i * 2);
         const highAddr = lowAddr + 1;
-        
+
         const lowValue = registers[unitID]?.[lowAddr] || 0;
         const highValue = registers[unitID]?.[highAddr] || 0;
 
-        // Combine the low and high register values into the response
         response[offset++] = (lowValue >> 8) & 0xFF;
         response[offset++] = lowValue & 0xFF;
         response[offset++] = (highValue >> 8) & 0xFF;
         response[offset++] = highValue & 0xFF;
       }
       
-      // Send the response back to the client
+      console.log(`Returning values: ${response.toString('hex')} for starting address: ${startAddr}`);
       socket.write(response);
-      console.log(`Sent response to client: ${response}`);
+
+      // Log the request and response to MongoDB
+      const database = client.db("modbus_logs");
+      const collection = database.collection("logs");
+      const logEntry = {
+        unitID,
+        functionCode: 3,  // Read Holding Register
+        address: startAddr,
+        values: response.toString('hex'),
+        timestamp: new Date().toISOString(),
+      };
+      collection.insertOne(logEntry).then(() => {
+        console.log("Logged data to MongoDB:", logEntry);
+      }).catch((error) => {
+        console.error("Error logging to MongoDB:", error);
+      });
     } else {
       console.log('Unsupported Modbus function code');
     }
