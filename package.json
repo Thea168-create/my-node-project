@@ -15,7 +15,8 @@
     "express": "^4.18.2",
     "modbus-serial": "^8.0.17",
     "moment-timezone": "^0.5.46",
-    "mongodb": "^6.10.0",
-    "pm2": "^5.4.3"
+    "mongodb": "^6.11.0",
+    "pm2": "^5.4.3",
+    "winston": "^3.17.0"
   }
 }
