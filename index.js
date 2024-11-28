@@ -1,7 +1,6 @@
 const ModbusRTU = require("modbus-serial");
 const net = require("net");
 
-// Create a new Modbus server
 const server = new ModbusRTU.ServerTCP({
   holding: {}, // Define holding registers to store data
 }, {
@@ -11,7 +10,6 @@ const server = new ModbusRTU.ServerTCP({
   console.log("Modbus TCP Server is running on port 502");
 });
 
-// Listen for read/write requests from the S275
 server.on("writeHoldingRegister", function (request, res) {
   const registerAddress = request.address;
   const registerValue = request.value;
@@ -20,6 +18,19 @@ server.on("writeHoldingRegister", function (request, res) {
   res(); // Send response back to the client (S275)
 });
 
+server.on("writeMultipleRegisters", function (request, res) {
+  const address = request.address;
+  const values = request.values;
+
+  console.log(`Received multiple registers starting from ${address} with values: ${values}`);
+  res(); // Send response back to the client (S275)
+});
+
 server.on("error", (err) => {
   console.error(`Modbus server error: ${err.message}`);
+});
+
+// Listening for client connection
+server.on("connection", function () {
+  console.log("Client connected to the server");
 });
