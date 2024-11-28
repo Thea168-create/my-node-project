@@ -121,7 +121,4 @@ server.on('connection', (socket) => {
   });
 });
 
-// Start the Modbus TCP server using 'listen()' method
-server.listen(() => {
-  console.log("Modbus TCP server listening on port 1234");
-});
+console.log("Modbus TCP Server is running on port 1234");
