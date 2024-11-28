@@ -15,7 +15,7 @@ async function connectDB() {
     console.log("Connected to MongoDB");
   } catch (err) {
     console.error("MongoDB connection error:", err);
-    process.exit(1);
+    process.exit(1); // Exit if the connection fails
   }
 }
 connectDB();
@@ -94,7 +94,7 @@ const modbusServer = new ModbusRTU.ServerTCP(
       };
       await collection.insertOne(logEntry); // Insert the log into MongoDB
 
-      return values;  // Return an array of 32-bit values back to the Modbus TCP client
+      return values;  // Return the values to the Modbus client
     },
 
     // New event listener for when a client connects to the server
