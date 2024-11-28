@@ -1,10 +1,8 @@
 const ModbusRTU = require("modbus-serial");
-const express = require('express');
-const app = express();
 
-// Create a Modbus TCP server
+// Create Modbus TCP Server
 const server = new ModbusRTU.ServerTCP({
-  // Function to handle read requests for holding registers
+  // Handle read request for holding registers
   getHoldingRegister: async (addr, unitID, numRegisters) => {
     console.log(`Received request to read Holding Registers starting at address ${addr} from unit ${unitID}`);
 
@@ -32,12 +30,3 @@ const server = new ModbusRTU.ServerTCP({
 });
 
 console.log("Modbus TCP Server running on port 502");
-
-// Set up an Express server for basic HTTP endpoints (optional)
-app.get("/", (req, res) => {
-  res.send("Node.js Modbus TCP Server is running.");
-});
-
-app.listen(3000, () => {
-  console.log("Express server running on http://localhost:3000");
-});
