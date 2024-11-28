@@ -152,9 +152,9 @@ const tcpServer = net.createServer((socket) => {
     if (message === "LOGIN") {
       logger.info("Login message received");
       socket.write("LOGIN_ACK"); // Respond with login acknowledgment
-    } else if (message === "A") { // Handle Heartbeat Message from S275
+    } else if (message === "Q") { // Handle Heartbeat Message from S275
       logger.info("Heartbeat message received");
-      socket.write("A_ACK"); // Respond with Heartbeat ACK
+      socket.write("A"); // Respond with Heartbeat ACK
       resetHeartbeatTimeout();
       socket.write("A"); // Respond with Heartbeat ACK
     }
