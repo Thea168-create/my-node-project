@@ -1,7 +1,6 @@
 // Import required modules
 const ModbusRTU = require("modbus-serial");
 const net = require("net");
-const { MongoClient } = require("mongodb");
 const winston = require("winston");
 require("dotenv").config();
 
@@ -18,21 +17,8 @@ const logger = winston.createLogger({
   ],
 });
 
-// MongoDB Connection Setup
-const client = new MongoClient('mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-let sensorDataCollection;
-
-client.connect()
-  .then(() => {
-    logger.info("Connected to MongoDB");
-    const db = client.db(); // Use the default database from URI
-    sensorDataCollection = db.collection("sensorData");
-  })
-  .catch((err) => logger.error(`MongoDB Connection Error: ${err.message}`));
+// In-Memory Data Store for Modbus Registers
+const holdingRegisters = new Array(10000).fill(0); // Simulate 10,000 holding registers
 
 // Modbus Server Configuration
 const server = new ModbusRTU.ServerTCP({
@@ -42,7 +28,7 @@ const server = new ModbusRTU.ServerTCP({
   inputs: {},
 }, {
   host: "0.0.0.0",
-  port: process.env.MODBUS_PORT || 1235,
+  port: process.env.MODBUS_PORT || 1234,
 }, () => {
   logger.info(`Modbus TCP Server is running on port ${process.env.MODBUS_PORT || 1234}`);
 });
@@ -54,14 +40,13 @@ server.on("writeHoldingRegister", function (request, res) {
 
   logger.info(`Received value ${registerValue} at register address ${registerAddress}`);
 
-  // Save to MongoDB for other register writes
-  sensorDataCollection.insertOne({
-    registerAddress: registerAddress,
-    value: registerValue,
-    timestamp: new Date(),
-  })
-    .then(() => logger.info(`Sensor data saved: Address - ${registerAddress}, Value - ${registerValue}`))
-    .catch((err) => logger.error(`Error saving sensor data: ${err.message}`));
+  // Update in-memory holding register
+  if (registerAddress >= 0 && registerAddress < holdingRegisters.length) {
+    holdingRegisters[registerAddress] = registerValue;
+    logger.info(`Updated holding register at address ${registerAddress} with value ${registerValue}`);
+  } else {
+    logger.warn(`Attempt to write to an invalid register address: ${registerAddress}`);
+  }
 
   res(); // Send response back to the client (S275)
 });
@@ -73,16 +58,16 @@ server.on("writeMultipleRegisters", function (request, res) {
 
   logger.info(`Received multiple register values starting from address ${address} with values: ${values}`);
 
-  // Save to MongoDB for each register
-  const documents = values.map((value, index) => ({
-    registerAddress: address + index,
-    value: value,
-    timestamp: new Date(),
-  }));
-
-  sensorDataCollection.insertMany(documents)
-    .then(() => logger.info(`Sensor data saved for multiple addresses starting from ${address}`))
-    .catch((err) => logger.error(`Error saving sensor data: ${err.message}`));
+  // Update in-memory holding registers
+  values.forEach((value, index) => {
+    const registerAddress = address + index;
+    if (registerAddress >= 0 && registerAddress < holdingRegisters.length) {
+      holdingRegisters[registerAddress] = value;
+      logger.info(`Updated holding register at address ${registerAddress} with value ${value}`);
+    } else {
+      logger.warn(`Attempt to write to an invalid register address: ${registerAddress}`);
+    }
+  });
 
   res(); // Send response back to the client (S275)
 });
@@ -94,38 +79,12 @@ server.on("readHoldingRegisters", function (request, res) {
 
   logger.info(`Received read request for ${length} registers starting from address ${address}`);
 
-  // Fetch values from MongoDB
-  sensorDataCollection.find({ registerAddress: { $gte: address, $lt: address + length } }).toArray()
-    .then((data) => {
-      const values = Array(length).fill(0);
-      data.forEach((entry) => {
-        const index = entry.registerAddress - address;
-        if (index >= 0 && index < length) {
-          values[index] = entry.value;
-        }
-      });
+  // Fetch values from in-memory holding registers
+  const values = holdingRegisters.slice(address, address + length);
 
-      // Handle 32-bit register data
-      const responseValues = [];
-      for (let i = 0; i < length; i += 2) {
-        if (i + 1 < length) {
-          // Combine two 16-bit registers into one 32-bit value
-          const high = values[i];
-          const low = values[i + 1];
-          const combinedValue = (high << 16) | low;
-          responseValues.push(combinedValue);
-        } else {
-          // If there's an odd number of registers, just add the last value as is
-          responseValues.push(values[i]);
-        }
-      }
-
-      res.response.body.values = responseValues;
-    })
-    .catch((err) => {
-      logger.error(`Error reading sensor data: ${err.message}`);
-      res(); // Respond with empty values in case of error
-    });
+  logger.info(`Responding with values: ${values}`);
+  res.response.body.values = values;
+  res(); // Send the response back to the client
 });
 
 // Handle Login and Heartbeat Messages via TCP
@@ -142,7 +101,6 @@ const tcpServer = net.createServer((socket) => {
 
   logger.info("TCP Client connected");
   resetHeartbeatTimeout();
-  logger.info("TCP Client connected");
 
   // Handle Login Message
   socket.on("data", (data) => {
@@ -156,7 +114,6 @@ const tcpServer = net.createServer((socket) => {
       logger.info("Heartbeat message received");
       socket.write("A"); // Respond with Heartbeat ACK
       resetHeartbeatTimeout();
-      socket.write("A"); // Respond with Heartbeat ACK
     }
   });
 
