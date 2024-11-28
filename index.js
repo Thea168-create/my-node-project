@@ -1,6 +1,7 @@
 const ModbusRTU = require("modbus-serial");
 const { MongoClient } = require("mongodb");
 
+// MongoDB connection URI
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
@@ -67,15 +68,11 @@ server.on('readHoldingRegisters', function(request, response) {
   response.send(data);
 });
 
-// Create TCP server for handling login and heartbeat messages
-const tcpServer = net.createServer((socket) => {
-  let clientIP = socket.remoteAddress;
-  let clientPort = socket.remotePort;
+// Handle device login and heartbeat communication with the device
+server.on('connection', function(socket) {
+  console.log('New client connected');
 
-  console.log(`New client connected: ${clientIP}:${clientPort}`);
-
-  // Handle incoming data
-  socket.on('data', (data) => {
+  socket.on('data', function(data) {
     const message = data.toString().trim();
     console.log(`Received data from client: ${message}`);
 
@@ -109,20 +106,15 @@ const tcpServer = net.createServer((socket) => {
 
   // Handle client disconnect
   socket.on('end', () => {
-    console.log(`Client disconnected: ${clientIP}:${clientPort}`);
+    console.log('Client disconnected');
     clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on disconnection
   });
 
   // Handle errors
   socket.on('error', (err) => {
-    console.error(`Error with client ${clientIP}:${clientPort} - ${err.message}`);
+    console.error(`Error with client: ${err.message}`);
     clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on error
   });
-});
-
-// Start TCP server on port 1234 for login and heartbeat handling
-tcpServer.listen(1234, () => {
-  console.log("TCP Server for login and heartbeat listening on port 1234");
 });
 
 // Start Modbus TCP server to handle actual Modbus communication on port 502
