@@ -64,13 +64,14 @@ const server = net.createServer((socket) => {
         socket.end();  // Close connection if authentication fails
       }
     } else {
-      // Log the incoming Modbus request in detail
-      console.log('After login, checking for Modbus requests...');
+      // Log the Modbus request raw frame data
+      console.log(`After login, checking for Modbus requests...`);
+      console.log(`Raw Modbus frame received: ${data.toString('hex')}`);
 
       // Handle Modbus Read Holding Registers request (function code 3)
-      if (data[0] === 0x01 && data[1] === 0x03) {  // Check for Modbus Read Holding Registers (function code 03)
-        const startAddr = (data[2] << 8) | data[3];  // Starting address (big-endian)
-        const numRegisters = (data[4] << 8) | data[5]; // Number of registers to read (big-endian)
+      if (data[7] === 0x03) {  // Check for Modbus Read Holding Registers (function code 03)
+        const startAddr = (data[8] << 8) | data[9];  // Starting address (big-endian)
+        const numRegisters = (data[10] << 8) | data[11]; // Number of registers to read (big-endian)
 
         console.log(`Received Modbus request: Read Holding Registers starting at address ${startAddr}`);
 
