@@ -3,7 +3,10 @@ const { MongoClient } = require("mongodb");
 const moment = require("moment-timezone");
 
 const uri = "mongodb+srv://thy_thea:36pOZaZUldekOzBI@cluster0.ypn3y.mongodb.net/modbus_logs?retryWrites=true&w=majority";
-const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+const client = new MongoClient(uri, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
 // MongoDB connection setup
 async function connectDB() {
@@ -41,7 +44,7 @@ let heartbeatTimeoutHandle;
 const server = new ModbusRTU.ServerTCP({
   unitId: 1,  // Modbus Slave ID
   host: '0.0.0.0',  // Listen on all network interfaces
-  port: 502  // Port for Modbus TCP server
+  port: 1234  // Port for Modbus TCP server
 });
 
 // Modbus function to handle the read holding registers (Function Code 3)
@@ -118,7 +121,7 @@ server.on('connection', (socket) => {
   });
 });
 
-// Start the Modbus TCP server using the 'serve()' method instead of 'listen'
-server.serve(() => {
+// Start the Modbus TCP server using 'listen()' method
+server.listen(() => {
   console.log("Modbus TCP server listening on port 502");
 });
