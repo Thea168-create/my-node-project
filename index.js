@@ -102,18 +102,21 @@ const tcpServer = net.createServer((socket) => {
   logger.info("TCP Client connected");
   resetHeartbeatTimeout();
 
-  // Handle Login Message
+  // Handle Login and Other Messages
   socket.on("data", (data) => {
     const message = data.toString().trim();
     logger.info(`Received message from client: ${message}`);
 
-    if (message === "LOGIN") {
-      logger.info("Login message received");
-      socket.write("LOGIN_ACK"); // Respond with login acknowledgment
+    if (message === "Q2685SY008TX9765") {
+      logger.info("Login message 'Q2685SY008TX9765' received");
+      socket.write(""); // Respond with a blank acknowledgment (empty response)
+      logger.info("Sent blank acknowledgment for login message");
     } else if (message === "Q") { // Handle Heartbeat Message from S275
       logger.info("Heartbeat message received");
       socket.write("A"); // Respond with Heartbeat ACK
       resetHeartbeatTimeout();
+    } else {
+      logger.warn(`Unexpected message received: ${message}`);
     }
   });
 
