@@ -33,6 +33,9 @@ const registers = {
   },
 };
 
+// Heartbeat timeout (6 seconds)
+const heartbeatTimeout = 6000;  // 6 seconds
+
 // Create TCP Server using `net` module
 const server = net.createServer((socket) => {
   const clientIP = socket.remoteAddress;
@@ -43,6 +46,7 @@ const server = net.createServer((socket) => {
 
   // Flag to track if login was successful
   let isAuthenticated = false;
+  let heartbeatTimeoutHandle;
 
   // Handle incoming data (Login first, then Modbus requests)
   socket.on('data', (data) => {
@@ -64,9 +68,20 @@ const server = net.createServer((socket) => {
         socket.end();  // Close connection if authentication fails
       }
     } else {
-      // Log the Modbus request raw frame data
-      console.log(`After login, checking for Modbus requests...`);
-      console.log(`Raw Modbus frame received: ${data.toString('hex')}`);
+      // Handle Heartbeat Message (after login)
+      if (data.toString().startsWith("A")) {  // Check for Heartbeat Message "A"
+        console.log('Received Heartbeat Message: A');
+        // Respond with Heartbeat ACK Message "R"
+        socket.write("R");  // Heartbeat ACK
+        console.log('Sent Heartbeat ACK Message: R');
+        
+        // Reset heartbeat timeout
+        clearTimeout(heartbeatTimeoutHandle);
+        heartbeatTimeoutHandle = setTimeout(() => {
+          console.log("No heartbeat received, disconnecting...");
+          socket.end();  // Disconnect if no heartbeat within the timeout period
+        }, heartbeatTimeout);
+      }
 
       // Handle Modbus Read Holding Registers request (function code 3)
       if (data[7] === 0x03) {  // Check for Modbus Read Holding Registers (function code 03)
@@ -94,24 +109,6 @@ const server = net.createServer((socket) => {
 
         console.log(`Returning Modbus values: ${response.toString('hex')} for starting address: ${startAddr}`);
         socket.write(response);  // Send the Modbus response
-
-        // Optionally log the request/response to MongoDB
-        const database = client.db("modbus_logs");
-        const collection = database.collection("logs");
-        const logEntry = {
-          unitID: 1,
-          functionCode: 3,  // Read Holding Register
-          address: startAddr,
-          values: response.toString('hex'),
-          timestamp: new Date().toISOString(),
-        };
-        collection.insertOne(logEntry).then(() => {
-          console.log("Logged data to MongoDB:", logEntry);
-        }).catch((error) => {
-          console.error("Error logging to MongoDB:", error);
-        });
-      } else {
-        console.log('Unsupported Modbus function code or invalid request format');
       }
     }
   });
@@ -119,11 +116,13 @@ const server = net.createServer((socket) => {
   // Handle client disconnect
   socket.on('end', () => {
     console.log(`Client disconnected: ${clientIP}:${clientPort}`);
+    clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout if disconnected
   });
 
   // Handle errors
   socket.on('error', (err) => {
     console.error(`Error with client ${clientIP}:${clientPort} - ${err.message}`);
+    clearTimeout(heartbeatTimeoutHandle);  // Clear heartbeat timeout on error
   });
 });
 
