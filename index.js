@@ -17,74 +17,48 @@ const logger = winston.createLogger({
   ],
 });
 
-// In-Memory Data Store for Modbus Registers
-const holdingRegisters = new Array(10000).fill(0); // Simulate 10,000 holding registers
+// Real sensor data registers (20128 to 20254)
+const sensorDataRegisters = {
+  20128: 0, // AI0 sensor
+  20130: 0, // AI1 sensor
+  20132: 0, // AI2 sensor
+  20134: 0, // AI3 sensor
+  20136: 0, // AI4 sensor
+  20138: 0, // AI5 sensor
+};
 
 // Modbus Server Configuration
 const server = new ModbusRTU.ServerTCP({
-  holding: {},
+  holding: sensorDataRegisters, // Holding registers to store sensor data
   coils: {},
   discrete: {},
   inputs: {},
 }, {
   host: "0.0.0.0",
-  port: process.env.MODBUS_PORT || 1234,
+  port: process.env.MODBUS_PORT || 1234, // Port to listen on
 }, () => {
   logger.info(`Modbus TCP Server is running on port ${process.env.MODBUS_PORT || 1234}`);
 });
 
-// Handle Modbus Write Holding Register (Function Code 06)
-server.on("writeHoldingRegister", function (request, res) {
-  const registerAddress = request.address;
-  const registerValue = request.value;
-
-  logger.info(`Received value ${registerValue} at register address ${registerAddress}`);
-
-  // Update in-memory holding register
-  if (registerAddress >= 0 && registerAddress < holdingRegisters.length) {
-    holdingRegisters[registerAddress] = registerValue;
-    logger.info(`Updated holding register at address ${registerAddress} with value ${registerValue}`);
-  } else {
-    logger.warn(`Attempt to write to an invalid register address: ${registerAddress}`);
-  }
-
-  res(); // Send response back to the client (S275)
-});
-
-// Handle Write Multiple Registers (Function Code 16)
+// Handle Modbus Write Multiple Holding Registers (Function Code 16)
 server.on("writeMultipleRegisters", function (request, res) {
   const address = request.address;
   const values = request.values;
 
-  logger.info(`Received multiple register values starting from address ${address} with values: ${values}`);
+  logger.info(`Received write request: Address ${address}, Values: ${values}`);
 
-  // Update in-memory holding registers
+  // Update holding registers (real sensor data)
   values.forEach((value, index) => {
     const registerAddress = address + index;
-    if (registerAddress >= 0 && registerAddress < holdingRegisters.length) {
-      holdingRegisters[registerAddress] = value;
-      logger.info(`Updated holding register at address ${registerAddress} with value ${value}`);
+    if (sensorDataRegisters.hasOwnProperty(registerAddress)) {
+      sensorDataRegisters[registerAddress] = value;
+      logger.info(`Updated register ${registerAddress} with value: ${value}`);
     } else {
-      logger.warn(`Attempt to write to an invalid register address: ${registerAddress}`);
+      logger.warn(`Invalid register address: ${registerAddress}`);
     }
   });
 
-  res(); // Send response back to the client (S275)
-});
-
-// Handle Read Holding Registers (Function Code 03)
-server.on("readHoldingRegisters", function (request, res) {
-  const address = request.address;
-  const length = request.quantity;
-
-  logger.info(`Received read request for ${length} registers starting from address ${address}`);
-
-  // Fetch values from in-memory holding registers
-  const values = holdingRegisters.slice(address, address + length);
-
-  logger.info(`Responding with values: ${values}`);
-  res.response.body.values = values;
-  res(); // Send the response back to the client
+  res(); // Send response back to the client (RTU)
 });
 
 // Handle Login and Heartbeat Messages via TCP
@@ -102,16 +76,16 @@ const tcpServer = net.createServer((socket) => {
   logger.info("TCP Client connected");
   resetHeartbeatTimeout();
 
-  // Handle Login and Other Messages
+  // Handle Login and Heartbeat Messages
   socket.on("data", (data) => {
     const message = data.toString().trim();
     logger.info(`Received message from client: ${message}`);
 
-    if (message === "Q2685SY008TX9765") {
-      logger.info("Login message 'Q2685SY008TX9765' received");
+    if (message === "Q2685SY008TX9765") { // Login message from RTU
+      logger.info("Login message received");
       socket.write(""); // Respond with a blank acknowledgment (empty response)
       logger.info("Sent blank acknowledgment for login message");
-    } else if (message === "Q") { // Handle Heartbeat Message from S275
+    } else if (message === "Q") { // Heartbeat message from RTU
       logger.info("Heartbeat message received");
       socket.write("A"); // Respond with Heartbeat ACK
       resetHeartbeatTimeout();
@@ -131,12 +105,12 @@ const tcpServer = net.createServer((socket) => {
   });
 });
 
-// Start TCP Server for Heartbeat and Login Messages
+// Start TCP Server for Login and Heartbeat Messages
 tcpServer.listen(process.env.MODBUS_PORT || 1234, () => {
   logger.info(`TCP Server for heartbeat and login messages is running on port ${process.env.MODBUS_PORT || 1234}`);
 });
 
-// Handle Errors
+// Handle Modbus Server Errors
 server.on("error", (err) => {
   logger.error(`Modbus server error: ${err.message}`);
 });
